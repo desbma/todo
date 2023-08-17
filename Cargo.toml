@@ -1,0 +1,22 @@
+[package]
+name = "todo"
+version = "0.1.0"
+edition = "2021"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+
+[dependencies]
+anyhow = { version = "1.0.75", default-features = false, features = ["std", "backtrace"] }
+chrono = { version = "0.4.26", default-features = false, features = ["std"] }
+clap = { version = "4.3.22", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
+lazy_static = { version = "1.4.0", default-features = false }
+log = { version = "0.4.20", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
+regex = { version = "1.9.3", default-features = false, features = ["std", "unicode"] }
+simple_logger = { version = "4.2.0", default-features = false, features = ["colors", "stderr"] }
+strum = { version = "0.25.0", default-features = false, features = ["std", "derive"] }
+
+[dev-dependencies]
+tempfile = { version = "3.8.0", default-features = false }
