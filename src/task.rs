@@ -1,6 +1,5 @@
 //! Todo.txt task
 
-use std::collections::BTreeMap;
 use std::fmt;
 use std::str::FromStr;
 
@@ -47,7 +46,7 @@ pub struct Task {
     pub priority: Option<char>,
     pub status: CreationCompletion,
     pub tags: Vec<Tag>,
-    pub attributes: BTreeMap<String, String>,
+    pub attributes: Vec<(String, String)>,
     pub text: String,
 }
 
@@ -140,14 +139,14 @@ impl FromStr for Task {
             .name("priority")
             .map(|m| m.as_str().chars().nth(1).unwrap());
 
-        let mut attributes = BTreeMap::new();
+        let mut attributes = Vec::new();
         while let Some(attribute_match) = ATTRIBUTE_REGEX.find_iter(&text).next() {
             let (mut key, val) = attribute_match.as_str().split_once(':').unwrap();
             key = key.trim_start();
             if (key == "pri") && priority.is_none() {
                 priority = Some(val.chars().next().unwrap());
             } else {
-                attributes.insert(key.to_string(), val.to_string());
+                attributes.push((key.to_string(), val.to_string()));
             }
             text.replace_range(attribute_match.range(), "");
             text = text.trim().to_string();
@@ -279,13 +278,13 @@ mod tests {
         let task = Task {
             text: "task text".to_string(),
 
-            attributes: BTreeMap::from([
+            attributes: vec![
                 ("attr1".to_string(), "v1".to_string()),
                 ("attr2".to_string(), "v2".to_string()),
                 ("attr3".to_string(), "v3".to_string()),
                 ("attr4".to_string(), "v4".to_string()),
                 ("rec".to_string(), "+3d".to_string()),
-            ]),
+            ],
             ..Task::default()
         };
         assert_eq!(
@@ -418,13 +417,13 @@ mod tests {
                 .unwrap(),
             Task {
                 text: "task text".to_string(),
-                attributes: BTreeMap::from([
+                attributes: vec![
                     ("attr1".to_string(), "v1".to_string()),
                     ("attr2".to_string(), "v2".to_string()),
                     ("attr3".to_string(), "v3".to_string()),
                     ("attr4".to_string(), "v4".to_string()),
                     ("rec".to_string(), "+3d".to_string())
-                ]),
+                ],
                 ..Task::default()
             }
         );
