@@ -1,13 +1,14 @@
 //! Todo.txt task
 
 use std::collections::BTreeMap;
+use std::fmt;
 use std::str::FromStr;
 
 use regex::{Regex, RegexBuilder};
 
 type Date = chrono::naive::NaiveDate;
 
-#[derive(Debug, Eq, PartialEq, strum::EnumString)]
+#[derive(Debug, Eq, PartialEq, strum::EnumString, strum::AsRefStr)]
 pub enum TagKind {
     #[strum(serialize = "+")]
     Plus,
@@ -48,6 +49,47 @@ pub struct Task {
     pub tags: Vec<Tag>,
     pub attributes: BTreeMap<String, String>,
     pub text: String,
+}
+
+impl fmt::Display for Task {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut segments = Vec::new();
+
+        match self.status {
+            CreationCompletion::Pending { created } => {
+                if let Some(priority) = self.priority {
+                    segments.push(format!("({priority})"));
+                }
+                if let Some(created) = created {
+                    segments.push(format!("{created}"));
+                }
+            }
+            CreationCompletion::Completed { created, completed } => {
+                segments.push(format!("x {completed}"));
+                if let Some(created) = created {
+                    segments.push(format!("{created}"));
+                }
+            }
+        }
+
+        for tag in &self.tags {
+            segments.push(format!("{}{}", tag.kind.as_ref(), tag.value));
+        }
+
+        segments.push(self.text.clone());
+
+        for (attribute_key, attribute_value) in &self.attributes {
+            segments.push(format!("{}:{}", attribute_key, attribute_value));
+        }
+
+        if matches!(self.status, CreationCompletion::Completed { .. }) {
+            if let Some(priority) = self.priority {
+                segments.push(format!("pri:{priority}"));
+            }
+        }
+
+        write!(f, "{}", segments.join(" "))
+    }
 }
 
 lazy_static::lazy_static! {
@@ -149,12 +191,135 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_empty() {
+    fn test_display_empty() {
+        let task = Task::default();
+        assert_eq!(format!("{task}"), "");
+    }
+
+    #[test]
+    fn test_display_simple() {
+        let task = Task {
+            text: "task text".to_string(),
+            ..Task::default()
+        };
+        assert_eq!(format!("{task}"), "task text");
+    }
+
+    #[test]
+    fn test_display_prio() {
+        let task = Task {
+            text: "task text".to_string(),
+            priority: Some('C'),
+            ..Task::default()
+        };
+        assert_eq!(format!("{task}"), "(C) task text");
+    }
+
+    #[test]
+    fn test_display_created_date() {
+        let task = Task {
+            text: "task text".to_string(),
+            status: CreationCompletion::Pending {
+                created: Some(Date::from_ymd_opt(2023, 8, 20).unwrap()),
+            },
+            ..Task::default()
+        };
+        assert_eq!(format!("{task}"), "2023-08-20 task text");
+    }
+
+    #[test]
+    fn test_display_completed() {
+        let task = Task {
+            text: "task text".to_string(),
+            status: CreationCompletion::Completed {
+                created: None,
+                completed: Date::from_ymd_opt(2023, 8, 21).unwrap(),
+            },
+            ..Task::default()
+        };
+        assert_eq!(format!("{task}"), "x 2023-08-21 task text");
+    }
+
+    #[test]
+    fn test_display_completed_created_date() {
+        let task = Task {
+            text: "task text".to_string(),
+            status: CreationCompletion::Completed {
+                created: Some(Date::from_ymd_opt(2023, 8, 20).unwrap()),
+                completed: Date::from_ymd_opt(2023, 8, 21).unwrap(),
+            },
+            ..Task::default()
+        };
+        assert_eq!(format!("{task}"), "x 2023-08-21 2023-08-20 task text");
+    }
+
+    #[test]
+    fn test_display_completed_priority() {
+        let task = Task {
+            priority: Some('D'),
+            text: "task text".to_string(),
+            status: CreationCompletion::Completed {
+                created: None,
+                completed: Date::from_ymd_opt(2023, 8, 21).unwrap(),
+            },
+            ..Task::default()
+        };
+        assert_eq!(format!("{task}"), "x 2023-08-21 task text pri:D");
+    }
+
+    #[test]
+    fn test_display_attributes() {
+        let task = Task {
+            text: "task text".to_string(),
+            attributes: BTreeMap::from([
+                ("attr1".to_string(), "v1".to_string()),
+                ("attr2".to_string(), "v2".to_string()),
+                ("attr3".to_string(), "v3".to_string()),
+                ("attr4".to_string(), "v4".to_string()),
+                ("rec".to_string(), "+3d".to_string()),
+            ]),
+            ..Task::default()
+        };
+        assert_eq!(
+            format!("{task}"),
+            "task text attr1:v1 attr2:v2 attr3:v3 attr4:v4 rec:+3d"
+        );
+    }
+
+    #[test]
+    fn test_display_tags() {
+        let task = Task {
+            text: "task text".to_string(),
+            tags: vec![
+                Tag {
+                    kind: TagKind::Plus,
+                    value: "tag1".to_string(),
+                },
+                Tag {
+                    kind: TagKind::Arobase,
+                    value: "tag2".to_string(),
+                },
+                Tag {
+                    kind: TagKind::Hash,
+                    value: "tag3".to_string(),
+                },
+                Tag {
+                    kind: TagKind::Plus,
+                    value: "tag4".to_string(),
+                },
+            ],
+            ..Task::default()
+        };
+        assert_eq!(format!("{task}"), "+tag1 @tag2 #tag3 +tag4 task text");
+    }
+
+    #[test]
+    fn test_parse_empty() {
         assert_eq!("".parse::<Task>().unwrap(), Task::default());
     }
 
     #[test]
-    fn test_simple() {
+    fn test_parse_simple() {
         assert_eq!(
             "task text".parse::<Task>().unwrap(),
             Task {
@@ -165,7 +330,7 @@ mod tests {
     }
 
     #[test]
-    fn test_prio() {
+    fn test_parse_prio() {
         assert_eq!(
             "(C) task text".parse::<Task>().unwrap(),
             Task {
@@ -177,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn test_start_date() {
+    fn test_parse_created_date() {
         assert_eq!(
             "2023-08-20 task text".parse::<Task>().unwrap(),
             Task {
@@ -191,7 +356,7 @@ mod tests {
     }
 
     #[test]
-    fn test_completed() {
+    fn test_parse_completed() {
         assert_eq!(
             "x 2023-08-21 task text".parse::<Task>().unwrap(),
             Task {
@@ -206,7 +371,7 @@ mod tests {
     }
 
     #[test]
-    fn test_completed_start_date() {
+    fn test_parse_completed_created_date() {
         assert_eq!(
             "x 2023-08-21 2023-08-20 task text".parse::<Task>().unwrap(),
             Task {
@@ -221,7 +386,7 @@ mod tests {
     }
 
     #[test]
-    fn test_completed_priority() {
+    fn test_parse_completed_priority() {
         assert_eq!(
             "x 2023-08-21 task text pri:D".parse::<Task>().unwrap(),
             Task {
@@ -237,7 +402,7 @@ mod tests {
     }
 
     #[test]
-    fn test_attributes() {
+    fn test_parse_attributes() {
         assert_eq!(
             "attr1:v1 attr2:v2 task text attr3:v3 attr4:v4 rec:+3d"
                 .parse::<Task>()
@@ -257,7 +422,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tags() {
+    fn test_parse_tags() {
         assert_eq!(
             "+tag1 @tag2 task text #tag3 +tag4".parse::<Task>().unwrap(),
             Task {

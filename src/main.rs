@@ -25,7 +25,11 @@ fn main() -> anyhow::Result<()> {
         cl::Action::List => {
             let task_file = file::TodoFile::new(todotxt_path)?;
             let tasks = task_file.tasks()?;
-            log::debug!("{tasks:?}");
+            log::trace!("{tasks:#?}");
+            // TODO sort
+            for task in tasks {
+                println!("{task}");
+            }
         }
     }
 
