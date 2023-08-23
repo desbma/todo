@@ -10,8 +10,9 @@
 - [ ] Colored output, respecting native terminal colors
 - [ ] Better default sorting (deprioritizes tasks before threshold date, etc.)
 - [ ] FZF like menu with auto reload
+- [ ] Recurrence (at 'do' time, and after it if task was marked as done from another device)
+- [ ] Auto archival of done tasks, with subfiles
 - [ ] Dependencies
-- [ ] Recurrence
 - [ ] Completely independant of `todo.sh`
 
 ## Rationale
