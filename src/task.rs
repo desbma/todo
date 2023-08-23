@@ -129,14 +129,17 @@ impl FromStr for Task {
         let caps = TASK_REGEX
             .captures(s)
             .ok_or_else(|| anyhow::anyhow!("Unable to parse {s:?}"))?;
+
         let mut text = caps
             .name("text")
             .map(|m| m.as_str())
             .unwrap_or_default()
             .to_string();
+
         let mut priority = caps
             .name("priority")
             .map(|m| m.as_str().chars().nth(1).unwrap());
+
         let mut attributes = BTreeMap::new();
         while let Some(attribute_match) = ATTRIBUTE_REGEX.find_iter(&text).next() {
             let (mut key, val) = attribute_match.as_str().split_once(':').unwrap();
@@ -149,6 +152,7 @@ impl FromStr for Task {
             text.replace_range(attribute_match.range(), "");
             text = text.trim().to_string();
         }
+
         let mut tags = Vec::new();
         while let Some(tag_match) = TAG_REGEX.find_iter(&text).next() {
             let tag_str = tag_match.as_str().trim_start();
@@ -160,6 +164,7 @@ impl FromStr for Task {
             text.replace_range(tag_match.range(), "");
             text = text.trim().to_string();
         }
+
         let status = if let Some(completed) = caps.name("completed") {
             CreationCompletion::Completed {
                 created: caps
@@ -176,6 +181,7 @@ impl FromStr for Task {
                     .map_or(Ok(None), |v| v.map(Some))?,
             }
         };
+
         Ok(Task {
             priority,
             status,
@@ -268,9 +274,11 @@ mod tests {
     }
 
     #[test]
+
     fn test_display_attributes() {
         let task = Task {
             text: "task text".to_string(),
+
             attributes: BTreeMap::from([
                 ("attr1".to_string(), "v1".to_string()),
                 ("attr2".to_string(), "v2".to_string()),
@@ -394,6 +402,7 @@ mod tests {
                 text: "task text".to_string(),
                 status: CreationCompletion::Completed {
                     created: None,
+
                     completed: Date::from_ymd_opt(2023, 8, 21).unwrap()
                 },
                 ..Task::default()
