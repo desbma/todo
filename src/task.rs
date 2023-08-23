@@ -110,9 +110,9 @@ lazy_static::lazy_static! {
 $
 "#).ignore_whitespace(true).build().unwrap();
 
-    static ref ATTRIBUTE_REGEX: Regex = Regex::new(r" ?(\w+:[\w+]+)").unwrap();
+    static ref ATTRIBUTE_REGEX: Regex = Regex::new(r" ?(\w+:[^\s]+)").unwrap();
 
-    static ref TAG_REGEX: Regex = Regex::new(r" ?([+#@]\w+)").unwrap();
+    static ref TAG_REGEX: Regex = Regex::new(r" ?([+#@][^\s]+)").unwrap();
 }
 
 /// Parse task from line
