@@ -24,9 +24,10 @@ fn main() -> anyhow::Result<()> {
     match cl_args {
         cl::Action::List => {
             let task_file = file::TodoFile::new(todotxt_path)?;
-            let tasks = task_file.tasks()?;
+            let mut tasks = task_file.tasks()?;
             log::trace!("{tasks:#?}");
-            // TODO sort
+            tasks.sort_unstable();
+            tasks.reverse();
             for task in tasks {
                 println!("{task}");
             }

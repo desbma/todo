@@ -1,5 +1,6 @@
 //! Todo.txt task
 
+use std::cmp::Ordering;
 use std::fmt;
 use std::str::FromStr;
 
@@ -48,6 +49,29 @@ pub struct Task {
     pub tags: Vec<Tag>,
     pub attributes: Vec<(String, String)>,
     pub text: String,
+}
+
+impl Task {
+    fn threshold_date(&self) -> Option<Date> {
+        self.attributes
+            .iter()
+            .find(|a| a.0 == "t")
+            .and_then(|a| Date::parse_from_str(&a.1, "%Y-%m-%d").ok())
+    }
+
+    fn due_date(&self) -> Option<Date> {
+        self.attributes
+            .iter()
+            .find(|a| a.0 == "due")
+            .and_then(|a| Date::parse_from_str(&a.1, "%Y-%m-%d").ok())
+    }
+
+    fn created_date(&self) -> Option<Date> {
+        match self.status {
+            CreationCompletion::Pending { created } => created,
+            CreationCompletion::Completed { created, .. } => created,
+        }
+    }
 }
 
 impl fmt::Display for Task {
@@ -188,6 +212,85 @@ impl FromStr for Task {
             attributes,
             text,
         })
+    }
+}
+
+fn today() -> Date {
+    chrono::Local::now().date_naive()
+}
+
+impl Ord for Task {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Before threshold is less urgent
+        let today = today();
+        let threshold_diff = self
+            .threshold_date()
+            .map(|t| today.signed_duration_since(t));
+        let other_threshold_diff = other
+            .threshold_date()
+            .map(|t| today.signed_duration_since(t));
+        match (threshold_diff, other_threshold_diff) {
+            (Some(d), Some(od))
+                if d < chrono::Duration::zero() && od >= chrono::Duration::zero() =>
+            {
+                return Ordering::Less;
+            }
+            (Some(d), Some(od))
+                if d >= chrono::Duration::zero() && od < chrono::Duration::zero() =>
+            {
+                return Ordering::Greater;
+            }
+            (Some(d), None) if d < chrono::Duration::zero() => {
+                return Ordering::Less;
+            }
+            (None, Some(od)) if od < chrono::Duration::zero() => {
+                return Ordering::Greater;
+            }
+            _ => (),
+        }
+
+        // Due date
+        let due = self.due_date();
+        let other_due = other.due_date();
+        match (due, other_due) {
+            (Some(d), Some(od)) => {
+                return od.cmp(&d);
+            }
+            (Some(d), None) if d <= today => {
+                return Ordering::Greater;
+            }
+            (None, Some(od)) if od <= today => {
+                return Ordering::Less;
+            }
+            _ => (),
+        }
+
+        // Explicit priority, no priority is less urgent than 'D' priority
+        match (self.priority, other.priority) {
+            (Some(p), Some(op)) if p != op => {
+                return op.cmp(&p);
+            }
+            (Some(p), None) if p < 'D' => {
+                return Ordering::Greater;
+            }
+            (None, Some(op)) if op < 'D' => {
+                return Ordering::Less;
+            }
+            _ => (),
+        }
+
+        // Created date
+        if let (Some(created), Some(other_created)) = (self.created_date(), other.created_date()) {
+            return other_created.cmp(&created);
+        }
+
+        Ordering::Equal
+    }
+}
+
+impl PartialOrd for Task {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
