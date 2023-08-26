@@ -116,7 +116,7 @@ impl fmt::Display for Task {
 }
 
 lazy_static::lazy_static! {
-    static ref TASK_REGEX: Regex = RegexBuilder::new(r#"
+    static ref TASK_REGEX: Regex = RegexBuilder::new(r"
 ^
 (
     (
@@ -131,7 +131,7 @@ lazy_static::lazy_static! {
 )?
 (?<text>.*)
 $
-"#).ignore_whitespace(true).build().unwrap();
+").ignore_whitespace(true).build().unwrap();
 
     static ref ATTRIBUTE_REGEX: Regex = Regex::new(r" ?(\w+:[^\s]+)").unwrap();
 
