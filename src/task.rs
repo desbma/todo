@@ -49,6 +49,7 @@ pub struct Task {
     pub tags: Vec<Tag>,
     pub attributes: Vec<(String, String)>,
     pub text: String,
+    pub index: Option<usize>,
 }
 
 impl Task {
@@ -211,6 +212,7 @@ impl FromStr for Task {
             tags,
             attributes,
             text,
+            index: None,
         })
     }
 }

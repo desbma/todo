@@ -25,6 +25,13 @@ impl TodoFile {
         reader
             .lines()
             .flat_map(|l| l.map(|l| l.parse()))
+            .enumerate()
+            .map(|(i, r)| {
+                r.map(|mut t: Task| {
+                    t.index = Some(i);
+                    t
+                })
+            })
             .collect::<Result<_, _>>()
     }
 }
@@ -59,11 +66,13 @@ mod tests {
             vec![
                 Task {
                     text: "task text".to_string(),
+                    index: Some(0),
                     ..Task::default()
                 },
                 Task {
                     text: "task2 text".to_string(),
                     priority: Some('C'),
+                    index: Some(1),
                     ..Task::default()
                 }
             ]
