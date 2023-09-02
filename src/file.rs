@@ -4,12 +4,13 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
+use notify::Watcher;
+
 use crate::task::Task;
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct TodoFile {
     path: PathBuf,
-    // TODO inotify watch
 }
 
 impl TodoFile {
@@ -33,6 +34,15 @@ impl TodoFile {
                 })
             })
             .collect::<Result<_, _>>()
+    }
+
+    pub fn watch<F>(&self, handler: F) -> anyhow::Result<Box<dyn notify::Watcher>>
+    where
+        F: notify::EventHandler,
+    {
+        let mut watcher = Box::new(notify::recommended_watcher(handler)?);
+        watcher.watch(&self.path, notify::RecursiveMode::NonRecursive)?;
+        Ok(watcher)
     }
 }
 
