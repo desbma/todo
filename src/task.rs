@@ -79,13 +79,36 @@ impl fmt::Display for Task {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut segments = Vec::new();
 
+        let today = today();
+
+        let base_style = if cfg!(test) {
+            dialoguer::console::Style::new().force_styling(false)
+        } else {
+            dialoguer::console::Style::new().for_stdout()
+        };
+
+        let before_threshold = self.threshold_date().map(|d| d > today).unwrap_or(false);
+        let overdue = self.due_date().map(|d| d <= today).unwrap_or(false);
+
         match self.status {
             CreationCompletion::Pending { created } => {
                 if let Some(priority) = self.priority {
-                    segments.push(format!("({priority})"));
+                    let priority_style = match priority {
+                        'A' if !before_threshold => base_style.clone().red(),
+                        'B' if !before_threshold => base_style.clone().color256(9),
+                        'C' if !before_threshold => base_style.clone().yellow(),
+                        _ => base_style.clone(),
+                    };
+                    segments.push(priority_style.apply_to(format!("({priority})")).to_string());
                 }
                 if let Some(created) = created {
-                    segments.push(format!("{created}"));
+                    let created_style = match today.signed_duration_since(created).num_days() {
+                        d if (0..=7).contains(&d) && !before_threshold => base_style.clone().dim(),
+                        d if (8..=30).contains(&d) && !before_threshold => base_style.clone(),
+                        _ if !before_threshold => base_style.clone().bold(),
+                        _ => base_style.clone(),
+                    };
+                    segments.push(created_style.apply_to(format!("{created}")).to_string());
                 }
             }
             CreationCompletion::Completed { created, completed } => {
@@ -96,14 +119,32 @@ impl fmt::Display for Task {
             }
         }
 
+        let tag_style = if !before_threshold {
+            base_style.clone().cyan()
+        } else {
+            base_style.clone()
+        };
         for tag in &self.tags {
-            segments.push(format!("{}{}", tag.kind.as_ref(), tag.value));
+            segments.push(
+                tag_style
+                    .apply_to(format!("{}{}", tag.kind.as_ref(), tag.value))
+                    .to_string(),
+            );
         }
 
         segments.push(self.text.clone());
 
         for (attribute_key, attribute_value) in &self.attributes {
-            segments.push(format!("{}:{}", attribute_key, attribute_value));
+            let attribute_style = match attribute_key.as_str() {
+                "due" if overdue && !before_threshold => base_style.clone().magenta(),
+                _ if !before_threshold => base_style.clone().green(),
+                _ => base_style.clone(),
+            };
+            segments.push(
+                attribute_style
+                    .apply_to(format!("{}:{}", attribute_key, attribute_value))
+                    .to_string(),
+            );
         }
 
         if matches!(self.status, CreationCompletion::Completed { .. }) {
@@ -112,7 +153,19 @@ impl fmt::Display for Task {
             }
         }
 
-        write!(f, "{}", segments.join(" "))
+        // Merge & color whole line
+        let mut line = segments.join(" ");
+        if matches!(self.status, CreationCompletion::Completed { .. }) {
+            line = base_style
+                .clone()
+                .strikethrough()
+                .apply_to(line)
+                .to_string();
+        } else if before_threshold {
+            line = base_style.clone().dim().apply_to(line).to_string();
+        }
+
+        write!(f, "{}", line)
     }
 }
 
@@ -378,7 +431,6 @@ mod tests {
     }
 
     #[test]
-
     fn test_display_attributes() {
         let task = Task {
             text: "task text".to_string(),

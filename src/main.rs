@@ -40,7 +40,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
         cl::Action::Menu { no_watch } => {
-            let term = dialoguer::console::Term::stderr();
+            let term = dialoguer::console::Term::stdout();
             let task_file = file::TodoFile::new(todotxt_path)?;
             if !no_watch {
                 let (event_tx, event_rx) = channel();
@@ -90,7 +90,8 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             } else {
-                let theme = dialoguer::theme::ColorfulTheme::default();
+                // Warning: console's themes do not support nesting styles
+                let theme = dialoguer::theme::SimpleTheme;
                 loop {
                     let mut tasks = task_file.tasks()?;
                     tasks.sort_unstable();
@@ -99,6 +100,7 @@ fn main() -> anyhow::Result<()> {
                     let task_selection = dialoguer::FuzzySelect::with_theme(&theme)
                         .items(&tasks)
                         .default(0)
+                        .highlight_matches(false)
                         .interact_on_opt(&term)?;
                     match task_selection {
                         None => break,
