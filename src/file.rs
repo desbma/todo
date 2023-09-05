@@ -22,7 +22,7 @@ impl TodoFile {
         })
     }
 
-    pub fn tasks(&self) -> anyhow::Result<Vec<Task>> {
+    pub fn load_tasks(&self) -> anyhow::Result<Vec<Task>> {
         let file = File::open(&self.path)?;
         let reader = BufReader::new(file);
         reader
@@ -36,6 +36,10 @@ impl TodoFile {
                 })
             })
             .collect::<Result<_, _>>()
+    }
+
+    pub fn save_tasks(&self, tasks: &[Task]) -> anyhow::Result<()> {
+        todo!();
     }
 
     pub fn watch<F>(&self, handler: F) -> anyhow::Result<Box<dyn notify::Watcher>>
@@ -103,14 +107,17 @@ mod tests {
     #[test]
     fn test_empty() {
         let file = todotxtfile(&[]);
-        assert_eq!(TodoFile::new(file.path()).unwrap().tasks().unwrap(), vec![]);
+        assert_eq!(
+            TodoFile::new(file.path()).unwrap().load_tasks().unwrap(),
+            vec![]
+        );
     }
 
     #[test]
     fn test_simple() {
         let file = todotxtfile(&["task text", "(C) task2 text"]);
         assert_eq!(
-            TodoFile::new(file.path()).unwrap().tasks().unwrap(),
+            TodoFile::new(file.path()).unwrap().load_tasks().unwrap(),
             vec![
                 Task {
                     text: "task text".to_string(),

@@ -31,13 +31,38 @@ fn main() -> anyhow::Result<()> {
     match cl_args {
         cl::Action::List => {
             let task_file = file::TodoFile::new(todotxt_path)?;
-            let mut tasks = task_file.tasks()?;
+            let mut tasks = task_file.load_tasks()?;
             log::trace!("{tasks:#?}");
             tasks.sort_unstable();
             tasks.reverse();
             for task in tasks {
                 println!("{task}");
             }
+        }
+        cl::Action::Next { simple } => {
+            let task_file = file::TodoFile::new(todotxt_path)?;
+            let tasks = task_file.load_tasks()?;
+            if let Some(task) = tasks.iter().max() {
+                if simple {
+                    println!(
+                        "{}{}",
+                        if let Some(priority) = task.priority {
+                            format!("({priority}) ")
+                        } else {
+                            "".to_string()
+                        },
+                        task.text
+                    );
+                } else {
+                    println!("{}", task);
+                }
+            }
+        }
+        cl::Action::PendingCount => {
+            let task_file = file::TodoFile::new(todotxt_path)?;
+            let tasks = task_file.load_tasks()?;
+            let pending = tasks.iter().filter(|t| t.is_pending()).count();
+            println!("{pending}");
         }
         cl::Action::Menu { no_watch } => {
             let term = dialoguer::console::Term::stdout();
@@ -93,7 +118,7 @@ fn main() -> anyhow::Result<()> {
                 // Warning: console's themes do not support nesting styles
                 let theme = dialoguer::theme::SimpleTheme;
                 loop {
-                    let mut tasks = task_file.tasks()?;
+                    let mut tasks = task_file.load_tasks()?;
                     tasks.sort_unstable();
                     tasks.reverse();
 
