@@ -89,8 +89,8 @@ impl FromStr for Recurrence {
             _ => unreachable!(),
         };
         let reference = match ref_ {
-            "+" => RecurrenceReference::Done,
-            "" => RecurrenceReference::Due,
+            "" => RecurrenceReference::Done,
+            "+" => RecurrenceReference::Due,
             _ => unreachable!(),
         };
         Ok(Self { delta, reference })
@@ -720,14 +720,14 @@ mod tests {
     #[test]
     fn test_parse_recurrence() {
         assert_eq!(
-            "3d".parse::<Recurrence>().unwrap(),
+            "+3d".parse::<Recurrence>().unwrap(),
             Recurrence {
                 delta: Duration::days(3),
                 reference: RecurrenceReference::Due,
             }
         );
         assert_eq!(
-            "+10w".parse::<Recurrence>().unwrap(),
+            "10w".parse::<Recurrence>().unwrap(),
             Recurrence {
                 delta: Duration::weeks(10),
                 reference: RecurrenceReference::Done,
@@ -749,7 +749,7 @@ mod tests {
         let task = Task {
             text: "task text".to_string(),
             status: CreationCompletion::Pending { created: None },
-            attributes: vec![("rec".to_string(), "1w".to_string())],
+            attributes: vec![("rec".to_string(), "+1w".to_string())],
             ..Task::default()
         };
         assert_eq!(task.recur(&today), None);
@@ -759,7 +759,7 @@ mod tests {
             status: CreationCompletion::Pending { created: None },
             attributes: vec![
                 ("due".to_string(), "2023-09-10".to_string()),
-                ("rec".to_string(), "1w".to_string()),
+                ("rec".to_string(), "+1w".to_string()),
             ],
             ..Task::default()
         };
@@ -772,33 +772,7 @@ mod tests {
                 },
                 attributes: vec![
                     ("due".to_string(), "2023-09-17".to_string()),
-                    ("rec".to_string(), "1w".to_string()),
-                ],
-                ..Task::default()
-            })
-        );
-
-        let task = Task {
-            text: "task text".to_string(),
-            status: CreationCompletion::Pending { created: None },
-            attributes: vec![
-                ("t".to_string(), "2023-09-08".to_string()),
-                ("due".to_string(), "2023-09-10".to_string()),
-                ("rec".to_string(), "1w".to_string()),
-            ],
-            ..Task::default()
-        };
-        assert_eq!(
-            task.recur(&today),
-            Some(Task {
-                text: "task text".to_string(),
-                status: CreationCompletion::Pending {
-                    created: Some(today)
-                },
-                attributes: vec![
-                    ("t".to_string(), "2023-09-15".to_string()),
-                    ("due".to_string(), "2023-09-17".to_string()),
-                    ("rec".to_string(), "1w".to_string()),
+                    ("rec".to_string(), "+1w".to_string()),
                 ],
                 ..Task::default()
             })
@@ -822,9 +796,35 @@ mod tests {
                     created: Some(today)
                 },
                 attributes: vec![
+                    ("t".to_string(), "2023-09-15".to_string()),
+                    ("due".to_string(), "2023-09-17".to_string()),
+                    ("rec".to_string(), "+1w".to_string()),
+                ],
+                ..Task::default()
+            })
+        );
+
+        let task = Task {
+            text: "task text".to_string(),
+            status: CreationCompletion::Pending { created: None },
+            attributes: vec![
+                ("t".to_string(), "2023-09-08".to_string()),
+                ("due".to_string(), "2023-09-10".to_string()),
+                ("rec".to_string(), "1w".to_string()),
+            ],
+            ..Task::default()
+        };
+        assert_eq!(
+            task.recur(&today),
+            Some(Task {
+                text: "task text".to_string(),
+                status: CreationCompletion::Pending {
+                    created: Some(today)
+                },
+                attributes: vec![
                     ("t".to_string(), "2023-09-14".to_string()),
                     ("due".to_string(), "2023-09-16".to_string()),
-                    ("rec".to_string(), "+1w".to_string()),
+                    ("rec".to_string(), "1w".to_string()),
                 ],
                 ..Task::default()
             })
