@@ -410,7 +410,7 @@ impl Ord for Task {
         let due = self.due_date();
         let other_due = other.due_date();
         match (due, other_due) {
-            (Some(d), Some(od)) => {
+            (Some(d), Some(od)) if d != od => {
                 return od.cmp(&d);
             }
             (Some(d), None) if d <= today => {
