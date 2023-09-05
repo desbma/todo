@@ -10,7 +10,7 @@
 - [x] Colored output, respecting native terminal colors
 - [x] Better default sorting (deprioritizes tasks before threshold date, etc.)
 - [x] FZF like menu with auto reload
-- [ ] Recurrence (at 'do' time, and after it if task was marked as done from another device)
+- [ ] Recurrence, propagated to both `t` and `due` attributes (at 'do' time, and after it if task was marked as done from another device)
 - [ ] Auto archival of done tasks, with subfiles
 - [ ] Dependencies
 - [ ] Completely independant of `todo.sh`
@@ -29,6 +29,7 @@ Strengths:
 Weaknesses:
 
 - recurrence is not usable with more than one device without risking data loss or duplicate task creation
+- recurrence model is limited: next task is always created regardless if the previous one is still pending
 - no usable Android app
 - the command line tool `task`, has many bugs (breaking unicode strings, inconsistent option handling or formatting...)
 - the sync daemon is of proof of concept quality, and is terribly lacking both in its design and implementation
