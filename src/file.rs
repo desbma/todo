@@ -1,8 +1,10 @@
 //! Todo.txt file handling
 
+use std::env;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use notify::Watcher;
 
@@ -43,6 +45,42 @@ impl TodoFile {
         let mut watcher = Box::new(notify::recommended_watcher(handler)?);
         watcher.watch(&self.path, notify::RecursiveMode::NonRecursive)?;
         Ok(watcher)
+    }
+
+    pub fn edit(&self, task: &Task) -> anyhow::Result<()> {
+        let editor = env::var("EDITOR")?;
+        Command::new(editor)
+            .arg(format!(
+                "{}:{}",
+                self.path.to_str().unwrap(),
+                task.index.unwrap() + 1
+            ))
+            .status()?;
+        Ok(())
+    }
+
+    pub fn set_done(&self, task: &Task) -> anyhow::Result<()> {
+        // TODO create new task file with tempfile, in same dir as task file
+        // TODO write all tasks except done task to it
+        // TODO write done task to it
+        // TODO if rec attribute, compute delay relative to now or due
+        // TODO add new task from recurrence
+        // TODO atomically move to task file with tempfile's persist method
+
+        // TODO use our native 'do' code and don't rely on todo.sh
+        let status = Command::new("todo.sh")
+            .args(["do", &format!("{}", task.index.unwrap() + 1)])
+            .status()?;
+        anyhow::ensure!(status.success());
+        Ok(())
+    }
+
+    pub fn autoarchive(&self) -> anyhow::Result<()> {
+        todo!();
+    }
+
+    pub fn autorecur(&self) -> anyhow::Result<()> {
+        todo!();
     }
 }
 

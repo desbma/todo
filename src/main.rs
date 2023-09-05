@@ -112,21 +112,10 @@ fn main() -> anyhow::Result<()> {
                                 .interact_on_opt(&term)?;
                             match action_selection {
                                 Some(0) => {
-                                    // TODO use our native 'do' code and don't rely on todo.sh
-                                    let status = Command::new("todo.sh")
-                                        .args(["do", &format!("{}", task.index.unwrap() + 1)])
-                                        .status()?;
-                                    anyhow::ensure!(status.success());
+                                    task_file.set_done(task)?;
                                 }
                                 Some(1) => {
-                                    let editor = env::var("EDITOR")?;
-                                    Command::new(editor)
-                                        .arg(format!(
-                                            "{}:{}",
-                                            todotxt_path.to_str().unwrap(),
-                                            task.index.unwrap() + 1
-                                        ))
-                                        .status()?;
+                                    task_file.edit(task)?;
                                 }
                                 Some(_) => unreachable!(),
                                 None => (),

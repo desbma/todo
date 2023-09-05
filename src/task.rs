@@ -4,11 +4,12 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::str::FromStr;
 
+use chrono::Duration;
 use regex::{Regex, RegexBuilder};
 
 type Date = chrono::naive::NaiveDate;
 
-#[derive(Debug, Eq, PartialEq, strum::EnumString, strum::AsRefStr)]
+#[derive(Debug, Clone, Eq, PartialEq, strum::EnumString, strum::AsRefStr)]
 pub enum TagKind {
     #[strum(serialize = "+")]
     Plus,
@@ -18,13 +19,13 @@ pub enum TagKind {
     Arobase,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Tag {
     kind: TagKind,
     value: String,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum CreationCompletion {
     Pending {
         created: Option<Date>,
@@ -42,7 +43,7 @@ impl Default for CreationCompletion {
 }
 
 // See https://github.com/todotxt/todo.txt#todotxt-format-rules
-#[derive(Debug, Default, Eq, PartialEq)]
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct Task {
     pub priority: Option<char>,
     pub status: CreationCompletion,
@@ -52,19 +53,63 @@ pub struct Task {
     pub index: Option<usize>,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+enum RecurrenceReference {
+    Due,
+    Done,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct Recurrence {
+    delta: Duration,
+    reference: RecurrenceReference,
+}
+
+const DATE_FORMAT: &str = "%Y-%m-%d";
+
+lazy_static::lazy_static! {
+    static ref REC_REGEX: Regex = Regex::new(r"(?<ref>\+?)(?<val>\d+)(?<unit>d|w|m|y)").unwrap();
+}
+
+impl FromStr for Recurrence {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let caps = REC_REGEX
+            .captures(s)
+            .ok_or_else(|| anyhow::anyhow!("Invalid recurrence"))?;
+        let ref_ = caps.name("ref").unwrap().as_str();
+        let val = caps.name("val").unwrap().as_str().parse::<u64>()?;
+        let unit = caps.name("unit").unwrap().as_str();
+        let delta = match unit {
+            "d" => Duration::days(val.try_into()?),
+            "w" => Duration::weeks(val.try_into()?),
+            "m" => Duration::days((30 * val).try_into()?),
+            "y" => Duration::days((365 * val).try_into()?),
+            _ => unreachable!(),
+        };
+        let reference = match ref_ {
+            "+" => RecurrenceReference::Done,
+            "" => RecurrenceReference::Due,
+            _ => unreachable!(),
+        };
+        Ok(Self { delta, reference })
+    }
+}
+
 impl Task {
     fn threshold_date(&self) -> Option<Date> {
         self.attributes
             .iter()
             .find(|a| a.0 == "t")
-            .and_then(|a| Date::parse_from_str(&a.1, "%Y-%m-%d").ok())
+            .and_then(|a| Date::parse_from_str(&a.1, DATE_FORMAT).ok())
     }
 
     fn due_date(&self) -> Option<Date> {
         self.attributes
             .iter()
             .find(|a| a.0 == "due")
-            .and_then(|a| Date::parse_from_str(&a.1, "%Y-%m-%d").ok())
+            .and_then(|a| Date::parse_from_str(&a.1, DATE_FORMAT).ok())
     }
 
     fn created_date(&self) -> Option<Date> {
@@ -72,6 +117,63 @@ impl Task {
             CreationCompletion::Pending { created } => created,
             CreationCompletion::Completed { created, .. } => created,
         }
+    }
+
+    fn recurrence(&self) -> Option<Recurrence> {
+        self.attributes
+            .iter()
+            .find(|a| a.0 == "rec")
+            .and_then(|v| v.1.parse().ok())
+    }
+
+    fn set_done(&mut self, today: &Date) {
+        match self.status {
+            CreationCompletion::Pending { created } => {
+                self.status = CreationCompletion::Completed {
+                    created,
+                    completed: *today,
+                };
+            }
+            CreationCompletion::Completed { .. } => panic!("Aleady completed"),
+        }
+    }
+
+    fn recur(&self, today: &Date) -> Option<Self> {
+        let due = match self.due_date() {
+            Some(d) => d,
+            None => {
+                return None;
+            }
+        };
+        self.recurrence().map(|r| {
+            // Update status
+            let status = CreationCompletion::Pending {
+                created: Some(*today),
+            };
+
+            // Update attributes
+            let mut attributes = self.attributes.clone();
+            let ref_ = match r.reference {
+                RecurrenceReference::Due => due,
+                RecurrenceReference::Done => *today,
+            };
+            attributes.iter_mut().find(|a| a.0 == "due").unwrap().1 =
+                (ref_ + r.delta).format(DATE_FORMAT).to_string();
+            if let Some(a) = attributes.iter_mut().find(|a| a.0 == "t") {
+                let threshold = self.threshold_date().unwrap();
+                // New threshold is new due date - delta betwwen old due and threshold
+                a.1 = ((ref_ + r.delta) - (due - threshold))
+                    .format(DATE_FORMAT)
+                    .to_string();
+            }
+
+            Self {
+                status,
+                attributes,
+                index: None,
+                ..self.clone()
+            }
+        })
     }
 }
 
@@ -612,6 +714,120 @@ mod tests {
                 ],
                 ..Task::default()
             }
+        );
+    }
+
+    #[test]
+    fn test_parse_recurrence() {
+        assert_eq!(
+            "3d".parse::<Recurrence>().unwrap(),
+            Recurrence {
+                delta: Duration::days(3),
+                reference: RecurrenceReference::Due,
+            }
+        );
+        assert_eq!(
+            "+10w".parse::<Recurrence>().unwrap(),
+            Recurrence {
+                delta: Duration::weeks(10),
+                reference: RecurrenceReference::Done,
+            }
+        );
+    }
+
+    #[test]
+    fn test_recur() {
+        let today = Date::from_ymd_opt(2023, 9, 9).unwrap();
+
+        let task = Task {
+            text: "task text".to_string(),
+            status: CreationCompletion::Pending { created: None },
+            ..Task::default()
+        };
+        assert_eq!(task.recur(&today), None);
+
+        let task = Task {
+            text: "task text".to_string(),
+            status: CreationCompletion::Pending { created: None },
+            attributes: vec![("rec".to_string(), "1w".to_string())],
+            ..Task::default()
+        };
+        assert_eq!(task.recur(&today), None);
+
+        let task = Task {
+            text: "task text".to_string(),
+            status: CreationCompletion::Pending { created: None },
+            attributes: vec![
+                ("due".to_string(), "2023-09-10".to_string()),
+                ("rec".to_string(), "1w".to_string()),
+            ],
+            ..Task::default()
+        };
+        assert_eq!(
+            task.recur(&today),
+            Some(Task {
+                text: "task text".to_string(),
+                status: CreationCompletion::Pending {
+                    created: Some(today)
+                },
+                attributes: vec![
+                    ("due".to_string(), "2023-09-17".to_string()),
+                    ("rec".to_string(), "1w".to_string()),
+                ],
+                ..Task::default()
+            })
+        );
+
+        let task = Task {
+            text: "task text".to_string(),
+            status: CreationCompletion::Pending { created: None },
+            attributes: vec![
+                ("t".to_string(), "2023-09-08".to_string()),
+                ("due".to_string(), "2023-09-10".to_string()),
+                ("rec".to_string(), "1w".to_string()),
+            ],
+            ..Task::default()
+        };
+        assert_eq!(
+            task.recur(&today),
+            Some(Task {
+                text: "task text".to_string(),
+                status: CreationCompletion::Pending {
+                    created: Some(today)
+                },
+                attributes: vec![
+                    ("t".to_string(), "2023-09-15".to_string()),
+                    ("due".to_string(), "2023-09-17".to_string()),
+                    ("rec".to_string(), "1w".to_string()),
+                ],
+                ..Task::default()
+            })
+        );
+
+        let task = Task {
+            text: "task text".to_string(),
+            status: CreationCompletion::Pending { created: None },
+            attributes: vec![
+                ("t".to_string(), "2023-09-08".to_string()),
+                ("due".to_string(), "2023-09-10".to_string()),
+                ("rec".to_string(), "+1w".to_string()),
+            ],
+            ..Task::default()
+        };
+        assert_eq!(
+            task.recur(&today),
+            Some(Task {
+                text: "task text".to_string(),
+                status: CreationCompletion::Pending {
+                    created: Some(today)
+                },
+                attributes: vec![
+                    ("t".to_string(), "2023-09-14".to_string()),
+                    ("due".to_string(), "2023-09-16".to_string()),
+                    ("rec".to_string(), "+1w".to_string()),
+                ],
+                ..Task::default()
+            })
         );
     }
 }
