@@ -42,7 +42,7 @@ fn main() -> anyhow::Result<()> {
         cl::Action::Next { simple } => {
             let task_file = file::TodoFile::new(todotxt_path)?;
             let tasks = task_file.load_tasks()?;
-            if let Some(task) = tasks.iter().max() {
+            if let Some(task) = tasks.iter().filter(|t| t.is_pending()).max() {
                 if simple {
                     println!(
                         "{}{}",

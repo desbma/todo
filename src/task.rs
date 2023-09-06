@@ -100,7 +100,7 @@ impl FromStr for Recurrence {
 impl Task {
     pub fn is_pending(&self) -> bool {
         let today = today();
-        self.threshold_date().map(|t| t >= today).unwrap_or(true)
+        self.threshold_date().map(|t| t <= today).unwrap_or(true)
     }
 
     fn threshold_date(&self) -> Option<Date> {
