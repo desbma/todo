@@ -396,6 +396,17 @@ pub fn today() -> Date {
 
 impl Ord for Task {
     fn cmp(&self, other: &Self) -> Ordering {
+        // Completed is obviously less urgent than pending
+        match (&self.status, &other.status) {
+            (CreationCompletion::Completed { .. }, CreationCompletion::Pending { .. }) => {
+                return Ordering::Less;
+            }
+            (CreationCompletion::Pending { .. }, CreationCompletion::Completed { .. }) => {
+                return Ordering::Greater;
+            }
+            _ => (),
+        }
+
         // Before threshold is less urgent
         let today = today();
         let threshold_diff = self
