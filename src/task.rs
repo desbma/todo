@@ -51,6 +51,8 @@ pub struct Task {
     pub attributes: Vec<(String, String)>,
     pub text: String,
     pub index: Option<usize>,
+
+    pub force_no_styling: bool,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -99,8 +101,13 @@ impl FromStr for Recurrence {
 
 impl Task {
     pub fn is_pending(&self) -> bool {
-        let today = today();
-        self.threshold_date().map(|t| t <= today).unwrap_or(true)
+        match self.status {
+            CreationCompletion::Pending { .. } => {
+                let today = today();
+                self.threshold_date().map(|t| t <= today).unwrap_or(true)
+            }
+            CreationCompletion::Completed { .. } => false,
+        }
     }
 
     fn threshold_date(&self) -> Option<Date> {
@@ -131,7 +138,7 @@ impl Task {
             .and_then(|v| v.1.parse().ok())
     }
 
-    fn set_done(&mut self, today: &Date) {
+    pub fn set_done(&mut self, today: &Date) {
         match self.status {
             CreationCompletion::Pending { created } => {
                 self.status = CreationCompletion::Completed {
@@ -143,7 +150,7 @@ impl Task {
         }
     }
 
-    fn recur(&self, today: &Date) -> Option<Self> {
+    pub fn recur(&self, today: &Date) -> Option<Self> {
         self.recurrence().and_then(|r| {
             // Update attributes
             let mut attributes = self.attributes.clone();
@@ -193,7 +200,7 @@ impl fmt::Display for Task {
 
         let today = today();
 
-        let base_style = if cfg!(test) {
+        let base_style = if self.force_no_styling || cfg!(test) {
             dialoguer::console::Style::new().force_styling(false)
         } else {
             dialoguer::console::Style::new().for_stdout()
@@ -378,11 +385,12 @@ impl FromStr for Task {
             attributes,
             text,
             index: None,
+            force_no_styling: false,
         })
     }
 }
 
-fn today() -> Date {
+pub fn today() -> Date {
     chrono::Local::now().date_naive()
 }
 

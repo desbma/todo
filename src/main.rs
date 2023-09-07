@@ -27,10 +27,15 @@ fn main() -> anyhow::Result<()> {
         .as_ref()
         .map(Path::new)
         .ok_or_else(|| anyhow::anyhow!("TODO_FILE environment variable is not set"))?;
+    let done_var = env::var_os("DONE_FILE");
+    let done_path = done_var
+        .as_ref()
+        .map(Path::new)
+        .ok_or_else(|| anyhow::anyhow!("DONE_FILE environment variable is not set"))?;
     let cl_args = cl::Action::parse();
     match cl_args {
         cl::Action::List => {
-            let task_file = file::TodoFile::new(todotxt_path)?;
+            let task_file = file::TodoFile::new(todotxt_path, done_path)?;
             let mut tasks = task_file.load_tasks()?;
             log::trace!("{tasks:#?}");
             tasks.sort_unstable();
@@ -40,7 +45,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
         cl::Action::Next { simple } => {
-            let task_file = file::TodoFile::new(todotxt_path)?;
+            let task_file = file::TodoFile::new(todotxt_path, done_path)?;
             let tasks = task_file.load_tasks()?;
             if let Some(task) = tasks.iter().filter(|t| t.is_pending()).max() {
                 if simple {
@@ -59,14 +64,14 @@ fn main() -> anyhow::Result<()> {
             }
         }
         cl::Action::PendingCount => {
-            let task_file = file::TodoFile::new(todotxt_path)?;
+            let task_file = file::TodoFile::new(todotxt_path, done_path)?;
             let tasks = task_file.load_tasks()?;
             let pending = tasks.iter().filter(|t| t.is_pending()).count();
             println!("{pending}");
         }
         cl::Action::Menu { no_watch } => {
             let term = dialoguer::console::Term::stdout();
-            let task_file = file::TodoFile::new(todotxt_path)?;
+            let task_file = file::TodoFile::new(todotxt_path, done_path)?;
             if !no_watch {
                 let (event_tx, event_rx) = channel();
                 let _watcher = task_file.watch(event_tx).unwrap();
@@ -137,7 +142,7 @@ fn main() -> anyhow::Result<()> {
                                 .interact_on_opt(&term)?;
                             match action_selection {
                                 Some(0) => {
-                                    task_file.set_done(task)?;
+                                    task_file.set_done(task.clone())?;
                                 }
                                 Some(1) => {
                                     task_file.edit(task)?;

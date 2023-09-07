@@ -2,28 +2,30 @@
 
 use std::env;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use notify::Watcher;
 
-use crate::task::Task;
+use crate::task::{today, Task};
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct TodoFile {
-    path: PathBuf,
+    todo_path: PathBuf,
+    done_path: PathBuf,
 }
 
 impl TodoFile {
-    pub fn new(path: &Path) -> anyhow::Result<Self> {
+    pub fn new(todo_path: &Path, done_path: &Path) -> anyhow::Result<Self> {
         Ok(Self {
-            path: path.to_path_buf(),
+            todo_path: todo_path.to_path_buf(),
+            done_path: done_path.to_path_buf(),
         })
     }
 
     pub fn load_tasks(&self) -> anyhow::Result<Vec<Task>> {
-        let file = File::open(&self.path)?;
+        let file = File::open(&self.todo_path)?;
         let reader = BufReader::new(file);
         reader
             .lines()
@@ -38,16 +40,12 @@ impl TodoFile {
             .collect::<Result<_, _>>()
     }
 
-    pub fn save_tasks(&self, tasks: &[Task]) -> anyhow::Result<()> {
-        todo!();
-    }
-
     pub fn watch<F>(&self, handler: F) -> anyhow::Result<Box<dyn notify::Watcher>>
     where
         F: notify::EventHandler,
     {
         let mut watcher = Box::new(notify::recommended_watcher(handler)?);
-        watcher.watch(&self.path, notify::RecursiveMode::NonRecursive)?;
+        watcher.watch(&self.todo_path, notify::RecursiveMode::NonRecursive)?;
         Ok(watcher)
     }
 
@@ -56,26 +54,40 @@ impl TodoFile {
         Command::new(editor)
             .arg(format!(
                 "{}:{}",
-                self.path.to_str().unwrap(),
+                self.todo_path.to_str().unwrap(),
                 task.index.unwrap() + 1
             ))
             .status()?;
         Ok(())
     }
 
-    pub fn set_done(&self, task: &Task) -> anyhow::Result<()> {
-        // TODO create new task file with tempfile, in same dir as task file
-        // TODO write all tasks except done task to it
-        // TODO write done task to it
-        // TODO if rec attribute, compute delay relative to now or due
-        // TODO add new task from recurrence
-        // TODO atomically move to task file with tempfile's persist method
+    pub fn set_done(&self, mut task: Task) -> anyhow::Result<()> {
+        // Create new file
+        let new_todo_file = tempfile::NamedTempFile::new_in(self.todo_path.parent().unwrap())?;
+        let mut new_todo_file_writer = BufWriter::new(new_todo_file);
 
-        // TODO use our native 'do' code and don't rely on todo.sh
-        let status = Command::new("todo.sh")
-            .args(["do", &format!("{}", task.index.unwrap() + 1)])
-            .status()?;
-        anyhow::ensure!(status.success());
+        // Write other tasks to it
+        for mut other_task in self.load_tasks()?.into_iter().filter(|t| *t != task) {
+            other_task.force_no_styling = true;
+            writeln!(new_todo_file_writer, "{other_task}")?;
+        }
+
+        // Set task done and write it
+        let today = today();
+        task.set_done(&today);
+        task.force_no_styling = true;
+        writeln!(new_todo_file_writer, "{task}")?;
+
+        // Write new recuring task if any
+        if let Some(mut new_recur_task) = task.recur(&today) {
+            new_recur_task.force_no_styling = true;
+            writeln!(new_todo_file_writer, "{new_recur_task}")?;
+        }
+
+        // Overwrite task file
+        let new_todo_file = new_todo_file_writer.into_inner()?;
+        new_todo_file.persist(&self.todo_path)?;
+
         Ok(())
     }
 
@@ -96,28 +108,35 @@ mod tests {
 
     use tempfile::NamedTempFile;
 
-    fn todotxtfile(lines: &[&str]) -> tempfile::NamedTempFile {
-        let mut file = NamedTempFile::new().unwrap();
+    fn todotxtfiles(lines: &[&str]) -> (tempfile::NamedTempFile, tempfile::NamedTempFile) {
+        let mut todo_file = NamedTempFile::new().unwrap();
         for line in lines {
-            writeln!(file, "{line}").unwrap();
+            writeln!(todo_file, "{line}").unwrap();
         }
-        file
+        let done_file = NamedTempFile::new().unwrap();
+        (todo_file, done_file)
     }
 
     #[test]
     fn test_empty() {
-        let file = todotxtfile(&[]);
+        let (todo_file, done_file) = todotxtfiles(&[]);
         assert_eq!(
-            TodoFile::new(file.path()).unwrap().load_tasks().unwrap(),
+            TodoFile::new(todo_file.path(), done_file.path())
+                .unwrap()
+                .load_tasks()
+                .unwrap(),
             vec![]
         );
     }
 
     #[test]
     fn test_simple() {
-        let file = todotxtfile(&["task text", "(C) task2 text"]);
+        let (todo_file, done_file) = todotxtfiles(&["task text", "(C) task2 text"]);
         assert_eq!(
-            TodoFile::new(file.path()).unwrap().load_tasks().unwrap(),
+            TodoFile::new(todo_file.path(), done_file.path())
+                .unwrap()
+                .load_tasks()
+                .unwrap(),
             vec![
                 Task {
                     text: "task text".to_string(),

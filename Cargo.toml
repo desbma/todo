@@ -20,6 +20,7 @@ notify = { version = "6.1.1", default-features = false }
 regex = { version = "1.9.3", default-features = false, features = ["std", "unicode"] }
 simple_logger = { version = "4.2.0", default-features = false, features = ["colors", "stderr"] }
 strum = { version = "0.25.0", default-features = false, features = ["std", "derive"] }
+tempfile = { version = "3.8.0", default-features = false }
 wait-timeout = { version = "0.2.0", default-features = false }
 
 [dev-dependencies]
