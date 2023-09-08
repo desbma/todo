@@ -63,6 +63,12 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         }
+        cl::Action::Add { args } => {
+            let task_file = file::TodoFile::new(todotxt_path, done_path)?;
+            let new_task = args.join(" ").parse()?;
+            log::debug!("{new_task:?}");
+            task_file.add_task(new_task)?;
+        }
         cl::Action::PendingCount => {
             let task_file = file::TodoFile::new(todotxt_path, done_path)?;
             let tasks = task_file.load_tasks()?;

@@ -9,6 +9,9 @@ pub enum Action {
         #[arg(short, long, default_value_t = false)]
         simple: bool,
     },
+    Add {
+        args: Vec<String>,
+    },
     PendingCount,
     Menu {
         #[arg(short, long, default_value_t = false)]

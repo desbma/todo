@@ -1,14 +1,14 @@
 //! Todo.txt file handling
 
 use std::env;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use notify::Watcher;
 
-use crate::task::{today, Task};
+use crate::task::{today, CreationCompletion, Task};
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct TodoFile {
@@ -47,6 +47,22 @@ impl TodoFile {
         let mut watcher = Box::new(notify::recommended_watcher(handler)?);
         watcher.watch(&self.todo_path, notify::RecursiveMode::NonRecursive)?;
         Ok(watcher)
+    }
+
+    pub fn add_task(&self, mut new_task: Task) -> anyhow::Result<()> {
+        // Set task created date if needed
+        if let CreationCompletion::Pending { created: None } = new_task.status {
+            new_task.status = CreationCompletion::Pending {
+                created: Some(today()),
+            };
+        }
+
+        // Append to file
+        let mut file = OpenOptions::new().append(true).open(&self.todo_path)?;
+        new_task.force_no_styling = true;
+        writeln!(file, "{new_task}")?;
+
+        Ok(())
     }
 
     pub fn edit(&self, task: &Task) -> anyhow::Result<()> {
