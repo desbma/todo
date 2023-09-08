@@ -208,23 +208,27 @@ impl fmt::Display for Task {
 
         let before_threshold = self.threshold_date().map(|d| d > today).unwrap_or(false);
         let overdue = self.due_date().map(|d| d <= today).unwrap_or(false);
+        let single_global_style =
+            before_threshold || matches!(self.status, CreationCompletion::Completed { .. });
 
         match self.status {
             CreationCompletion::Pending { created } => {
                 if let Some(priority) = self.priority {
                     let priority_style = match priority {
-                        'A' if !before_threshold => base_style.clone().red(),
-                        'B' if !before_threshold => base_style.clone().color256(9),
-                        'C' if !before_threshold => base_style.clone().yellow(),
+                        'A' if !single_global_style => base_style.clone().red(),
+                        'B' if !single_global_style => base_style.clone().color256(9),
+                        'C' if !single_global_style => base_style.clone().yellow(),
                         _ => base_style.clone(),
                     };
                     segments.push(priority_style.apply_to(format!("({priority})")).to_string());
                 }
                 if let Some(created) = created {
                     let created_style = match today.signed_duration_since(created).num_days() {
-                        d if (0..=7).contains(&d) && !before_threshold => base_style.clone().dim(),
-                        d if (8..=30).contains(&d) && !before_threshold => base_style.clone(),
-                        _ if !before_threshold => base_style.clone().bold(),
+                        d if (0..=7).contains(&d) && !single_global_style => {
+                            base_style.clone().dim()
+                        }
+                        d if (8..=30).contains(&d) && !single_global_style => base_style.clone(),
+                        _ if !single_global_style => base_style.clone().bold(),
                         _ => base_style.clone(),
                     };
                     segments.push(created_style.apply_to(format!("{created}")).to_string());
@@ -238,7 +242,7 @@ impl fmt::Display for Task {
             }
         }
 
-        let tag_style = if !before_threshold {
+        let tag_style = if !single_global_style {
             base_style.clone().cyan()
         } else {
             base_style.clone()
@@ -255,8 +259,8 @@ impl fmt::Display for Task {
 
         for (attribute_key, attribute_value) in &self.attributes {
             let attribute_style = match attribute_key.as_str() {
-                "due" if overdue && !before_threshold => base_style.clone().magenta(),
-                _ if !before_threshold => base_style.clone().green(),
+                "due" if overdue && !single_global_style => base_style.clone().magenta(),
+                _ if !single_global_style => base_style.clone().green(),
                 _ => base_style.clone(),
             };
             segments.push(
@@ -277,6 +281,7 @@ impl fmt::Display for Task {
         if matches!(self.status, CreationCompletion::Completed { .. }) {
             line = base_style
                 .clone()
+                .dim()
                 .strikethrough()
                 .apply_to(line)
                 .to_string();
