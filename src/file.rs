@@ -6,9 +6,11 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use chrono::Duration;
+use lazy_static::lazy_static;
 use notify::Watcher;
 
-use crate::task::{today, CreationCompletion, Task};
+use crate::task::{CreationCompletion, Date, Task};
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct TodoFile {
@@ -67,11 +69,11 @@ impl TodoFile {
         Ok(watcher)
     }
 
-    pub fn add_task(&self, mut new_task: Task) -> anyhow::Result<()> {
+    pub fn add_task(&self, mut new_task: Task, today: &Date) -> anyhow::Result<()> {
         // Set task created date if needed
         if let CreationCompletion::Pending { created: None } = new_task.status {
             new_task.status = CreationCompletion::Pending {
-                created: Some(today()),
+                created: Some(*today),
             };
         }
 
@@ -95,28 +97,30 @@ impl TodoFile {
         Ok(())
     }
 
-    pub fn set_done(&self, mut task: Task) -> anyhow::Result<()> {
+    pub fn set_done(&self, mut task: Task, today: &Date) -> anyhow::Result<()> {
         // Create new file
         let new_todo_file = tempfile::NamedTempFile::new_in(self.todo_path.parent().unwrap())?;
         let mut new_todo_file_writer = BufWriter::new(new_todo_file);
 
-        // TODO auto archive
+        // Auto archive
+        let mut tasks = self.load_tasks()?;
+        self.auto_archive(&mut tasks, today)?;
+
         // TODO auto recur
 
         // Write other tasks to it
-        for mut other_task in self.load_tasks()?.into_iter().filter(|t| *t != task) {
+        for mut other_task in tasks.into_iter().filter(|t| *t != task) {
             other_task.force_no_styling = true;
             writeln!(new_todo_file_writer, "{other_task}")?;
         }
 
         // Set task done and write it
-        let today = today();
-        task.set_done(&today);
+        task.set_done(today);
         task.force_no_styling = true;
         writeln!(new_todo_file_writer, "{task}")?;
 
         // Write new recurring task if any
-        if let Some(mut new_recur_task) = task.recur(&today) {
+        if let Some(mut new_recur_task) = task.recur(today) {
             new_recur_task.force_no_styling = true;
             writeln!(new_todo_file_writer, "{new_recur_task}")?;
         }
@@ -128,20 +132,48 @@ impl TodoFile {
         Ok(())
     }
 
-    #[allow(dead_code)]
-    #[allow(clippy::ptr_arg)]
-    pub fn auto_archive(&self, _tasks: &mut Vec<Task>) -> anyhow::Result<()> {
-        todo!();
+    pub fn auto_archive(&self, tasks: &mut Vec<Task>, today: &Date) -> anyhow::Result<()> {
+        lazy_static! {
+            static ref AUTO_ARCHIVE_COMPLETED_THRESHOLD: Duration = Duration::days(2);
+        }
+
+        // TODO use https://doc.rust-lang.org/std/vec/struct.Vec.html#method.extract_if when stabilized
+        let mut to_archive = Vec::new();
+        let mut i = 0;
+        while i < tasks.len() {
+            if let CreationCompletion::Completed { completed, .. } = tasks[i].status {
+                if *today - completed >= *AUTO_ARCHIVE_COMPLETED_THRESHOLD {
+                    let task = tasks.remove(i);
+                    to_archive.push(task);
+                    continue;
+                }
+            }
+            i += 1;
+        }
+
+        if !to_archive.is_empty() {
+            // Append to file
+            let done_file = OpenOptions::new().append(true).open(&self.done_path)?;
+            let mut done_writer = BufWriter::new(done_file);
+            let to_archive_count = to_archive.len();
+            for mut task in to_archive {
+                task.force_no_styling = true;
+                writeln!(done_writer, "{task}")?;
+            }
+            log::info!("Archived {to_archive_count} tasks");
+        }
+
+        Ok(())
     }
 
     #[allow(dead_code)]
     #[allow(clippy::ptr_arg)]
-    pub fn auto_recur(&self, _tasks: &mut Vec<Task>) -> anyhow::Result<()> {
+    pub fn auto_recur(&self, _tasks: &mut Vec<Task>, _today: &Date) -> anyhow::Result<()> {
         todo!();
     }
 
     #[allow(dead_code)]
-    pub fn autobackup(&self) -> anyhow::Result<()> {
+    pub fn autobackup(&self, _today: &Date) -> anyhow::Result<()> {
         todo!();
     }
 }

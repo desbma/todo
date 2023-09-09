@@ -13,6 +13,12 @@ mod cl;
 mod file;
 mod task;
 
+use task::Date;
+
+pub fn today() -> Date {
+    chrono::Local::now().date_naive()
+}
+
 const TASK_ACTIONS: [&str; 2] = ["Mark as done", "Edit"];
 
 fn main() -> anyhow::Result<()> {
@@ -32,6 +38,7 @@ fn main() -> anyhow::Result<()> {
         .as_ref()
         .map(Path::new)
         .ok_or_else(|| anyhow::anyhow!("DONE_FILE environment variable is not set"))?;
+    let today = today();
     let cl_args = cl::Action::parse();
     match cl_args {
         cl::Action::List => {
@@ -47,7 +54,7 @@ fn main() -> anyhow::Result<()> {
         cl::Action::Next { simple } => {
             let task_file = file::TodoFile::new(todotxt_path, done_path)?;
             let tasks = task_file.load_tasks()?;
-            if let Some(task) = tasks.iter().filter(|t| t.is_pending()).max() {
+            if let Some(task) = tasks.iter().filter(|t| t.is_pending(&today)).max() {
                 if simple {
                     println!(
                         "{}{}",
@@ -67,12 +74,12 @@ fn main() -> anyhow::Result<()> {
             let task_file = file::TodoFile::new(todotxt_path, done_path)?;
             let new_task = args.join(" ").parse()?;
             log::debug!("{new_task:?}");
-            task_file.add_task(new_task)?;
+            task_file.add_task(new_task, &today)?;
         }
         cl::Action::PendingCount => {
             let task_file = file::TodoFile::new(todotxt_path, done_path)?;
             let tasks = task_file.load_tasks()?;
-            let pending = tasks.iter().filter(|t| t.is_pending()).count();
+            let pending = tasks.iter().filter(|t| t.is_pending(&today)).count();
             println!("{pending}");
         }
         cl::Action::Menu { no_watch } => {
@@ -148,7 +155,7 @@ fn main() -> anyhow::Result<()> {
                                 .interact_on_opt(&term)?;
                             match action_selection {
                                 Some(0) => {
-                                    task_file.set_done(task.clone())?;
+                                    task_file.set_done(task.clone(), &today)?;
                                 }
                                 Some(1) => {
                                     task_file.edit(task)?;
@@ -165,8 +172,8 @@ fn main() -> anyhow::Result<()> {
         cl::Action::Auto => {
             let task_file = file::TodoFile::new(todotxt_path, done_path)?;
             let mut tasks = task_file.load_tasks()?;
-            task_file.auto_recur(&mut tasks)?;
-            task_file.auto_archive(&mut tasks)?;
+            // task_file.auto_recur(&mut tasks, &today)?;
+            task_file.auto_archive(&mut tasks, &today)?;
             // TODO also first run auto_recur on most recent archive file
             task_file.save_tasks(tasks)?;
         }

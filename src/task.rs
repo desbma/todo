@@ -7,7 +7,9 @@ use std::str::FromStr;
 use chrono::Duration;
 use regex::{Regex, RegexBuilder};
 
-type Date = chrono::naive::NaiveDate;
+use crate::today;
+
+pub type Date = chrono::naive::NaiveDate;
 
 #[derive(Debug, Clone, Eq, PartialEq, strum::EnumString, strum::AsRefStr)]
 pub enum TagKind {
@@ -100,11 +102,10 @@ impl FromStr for Recurrence {
 }
 
 impl Task {
-    pub fn is_pending(&self) -> bool {
+    pub fn is_pending(&self, today: &Date) -> bool {
         match self.status {
             CreationCompletion::Pending { .. } => {
-                let today = today();
-                self.threshold_date().map(|t| t <= today).unwrap_or(true)
+                self.threshold_date().map(|t| t <= *today).unwrap_or(true)
             }
             CreationCompletion::Completed { .. } => false,
         }
@@ -393,10 +394,6 @@ impl FromStr for Task {
             force_no_styling: false,
         })
     }
-}
-
-pub fn today() -> Date {
-    chrono::Local::now().date_naive()
 }
 
 impl Ord for Task {
