@@ -122,15 +122,13 @@ fn main() -> anyhow::Result<()> {
                         }
                     }
 
-                    if restart_child {
-                        nix::sys::signal::kill(
-                            nix::unistd::Pid::from_raw(child.id().try_into().unwrap()),
-                            nix::sys::signal::Signal::SIGTERM,
-                        )
-                        .unwrap();
-                        child.wait()?;
-                        term.clear_screen()?;
-                    }
+                    nix::sys::signal::kill(
+                        nix::unistd::Pid::from_raw(child.id().try_into().unwrap()),
+                        nix::sys::signal::Signal::SIGTERM,
+                    )
+                    .unwrap();
+                    child.wait()?;
+                    term.clear_screen()?;
                 }
             } else {
                 // Warning: console's themes do not support nesting styles
@@ -173,9 +171,12 @@ fn main() -> anyhow::Result<()> {
             let task_file = file::TodoFile::new(todotxt_path, done_path)?;
             let mut tasks = task_file.load_tasks()?;
             // task_file.auto_recur(&mut tasks, &today)?;
-            task_file.auto_archive(&mut tasks, &today)?;
             // TODO also first run auto_recur on most recent archive file
-            task_file.save_tasks(tasks)?;
+            let archived_count = task_file.auto_archive(&mut tasks, &today)?;
+            if archived_count > 0 {
+                log::info!("Archived {archived_count} tasks");
+                task_file.save_tasks(tasks)?;
+            }
         }
     }
 

@@ -65,7 +65,10 @@ impl TodoFile {
         F: notify::EventHandler,
     {
         let mut watcher = Box::new(notify::recommended_watcher(handler)?);
-        watcher.watch(&self.todo_path, notify::RecursiveMode::NonRecursive)?;
+        watcher.watch(
+            self.todo_path.parent().unwrap(),
+            notify::RecursiveMode::NonRecursive,
+        )?;
         Ok(watcher)
     }
 
@@ -132,7 +135,7 @@ impl TodoFile {
         Ok(())
     }
 
-    pub fn auto_archive(&self, tasks: &mut Vec<Task>, today: &Date) -> anyhow::Result<()> {
+    pub fn auto_archive(&self, tasks: &mut Vec<Task>, today: &Date) -> anyhow::Result<usize> {
         lazy_static! {
             static ref AUTO_ARCHIVE_COMPLETED_THRESHOLD: Duration = Duration::days(2);
         }
@@ -151,19 +154,18 @@ impl TodoFile {
             i += 1;
         }
 
+        let to_archive_count = to_archive.len();
         if !to_archive.is_empty() {
             // Append to file
             let done_file = OpenOptions::new().append(true).open(&self.done_path)?;
             let mut done_writer = BufWriter::new(done_file);
-            let to_archive_count = to_archive.len();
             for mut task in to_archive {
                 task.force_no_styling = true;
                 writeln!(done_writer, "{task}")?;
             }
-            log::info!("Archived {to_archive_count} tasks");
         }
 
-        Ok(())
+        Ok(to_archive_count)
     }
 
     #[allow(dead_code)]

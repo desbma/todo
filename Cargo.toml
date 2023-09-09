@@ -16,7 +16,7 @@ dialoguer = { version = "0.10.4", default-features = false, features = ["fuzzy-s
 lazy_static = { version = "1.4.0", default-features = false }
 log = { version = "0.4.20", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
 nix = { version = "0.27.1", default-features = false, features = ["signal"] }
-notify = { version = "6.1.1", default-features = false, features = ["crossbeam-channel"] }
+notify = { version = "6.1.1", default-features = false }
 regex = { version = "1.9.3", default-features = false, features = ["std", "unicode"] }
 simple_logger = { version = "4.2.0", default-features = false, features = ["colors", "stderr"] }
 strum = { version = "0.25.0", default-features = false, features = ["std", "derive"] }
