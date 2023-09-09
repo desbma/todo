@@ -14,7 +14,7 @@
   - [ ] ...and after it if task was marked as done from another device
 - [ ] Auto archival of done tasks, with subfiles
 - [ ] Dependencies
-- [ ] Completely independant of `todo.sh`
+- [x] Completely independant of `todo.sh`
 
 ## Rationale
 

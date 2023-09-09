@@ -40,6 +40,24 @@ impl TodoFile {
             .collect::<Result<_, _>>()
     }
 
+    pub fn save_tasks(&self, tasks: Vec<Task>) -> anyhow::Result<()> {
+        // Create new file
+        let new_todo_file = tempfile::NamedTempFile::new_in(self.todo_path.parent().unwrap())?;
+        let mut new_todo_file_writer = BufWriter::new(new_todo_file);
+
+        // Write tasks to it
+        for mut task in tasks {
+            task.force_no_styling = true;
+            writeln!(new_todo_file_writer, "{task}")?;
+        }
+
+        // Overwrite task file
+        let new_todo_file = new_todo_file_writer.into_inner()?;
+        new_todo_file.persist(&self.todo_path)?;
+
+        Ok(())
+    }
+
     pub fn watch<F>(&self, handler: F) -> anyhow::Result<Box<dyn notify::Watcher>>
     where
         F: notify::EventHandler,
@@ -82,6 +100,9 @@ impl TodoFile {
         let new_todo_file = tempfile::NamedTempFile::new_in(self.todo_path.parent().unwrap())?;
         let mut new_todo_file_writer = BufWriter::new(new_todo_file);
 
+        // TODO auto archive
+        // TODO auto recur
+
         // Write other tasks to it
         for mut other_task in self.load_tasks()?.into_iter().filter(|t| *t != task) {
             other_task.force_no_styling = true;
@@ -94,7 +115,7 @@ impl TodoFile {
         task.force_no_styling = true;
         writeln!(new_todo_file_writer, "{task}")?;
 
-        // Write new recuring task if any
+        // Write new recurring task if any
         if let Some(mut new_recur_task) = task.recur(&today) {
             new_recur_task.force_no_styling = true;
             writeln!(new_todo_file_writer, "{new_recur_task}")?;
@@ -107,11 +128,20 @@ impl TodoFile {
         Ok(())
     }
 
-    pub fn autoarchive(&self) -> anyhow::Result<()> {
+    #[allow(dead_code)]
+    #[allow(clippy::ptr_arg)]
+    pub fn auto_archive(&self, _tasks: &mut Vec<Task>) -> anyhow::Result<()> {
         todo!();
     }
 
-    pub fn autorecur(&self) -> anyhow::Result<()> {
+    #[allow(dead_code)]
+    #[allow(clippy::ptr_arg)]
+    pub fn auto_recur(&self, _tasks: &mut Vec<Task>) -> anyhow::Result<()> {
+        todo!();
+    }
+
+    #[allow(dead_code)]
+    pub fn autobackup(&self) -> anyhow::Result<()> {
         todo!();
     }
 }

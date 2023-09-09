@@ -162,6 +162,14 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         }
+        cl::Action::Auto => {
+            let task_file = file::TodoFile::new(todotxt_path, done_path)?;
+            let mut tasks = task_file.load_tasks()?;
+            task_file.auto_recur(&mut tasks)?;
+            task_file.auto_archive(&mut tasks)?;
+            // TODO also first run auto_recur on most recent archive file
+            task_file.save_tasks(tasks)?;
+        }
     }
 
     Ok(())
