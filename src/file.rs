@@ -2,7 +2,7 @@
 
 use std::env;
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc;
@@ -49,9 +49,8 @@ impl TodoFile {
         let mut new_todo_file_writer = BufWriter::new(new_todo_file);
 
         // Write tasks to it
-        for mut task in tasks {
-            task.force_no_styling = true;
-            writeln!(new_todo_file_writer, "{task}")?;
+        for task in tasks {
+            Self::write_task(&mut new_todo_file_writer, task)?;
         }
 
         // Overwrite task file
@@ -100,8 +99,7 @@ impl TodoFile {
 
         // Append to file
         let mut file = OpenOptions::new().append(true).open(&self.todo_path)?;
-        new_task.force_no_styling = true;
-        writeln!(file, "{new_task}")?;
+        Self::write_task(&mut file, new_task)?;
 
         Ok(())
     }
@@ -130,20 +128,17 @@ impl TodoFile {
         // TODO auto recur
 
         // Write other tasks to it
-        for mut other_task in tasks.into_iter().filter(|t| *t != task) {
-            other_task.force_no_styling = true;
-            writeln!(new_todo_file_writer, "{other_task}")?;
+        for other_task in tasks.into_iter().filter(|t| *t != task) {
+            Self::write_task(&mut new_todo_file_writer, other_task)?;
         }
 
         // Set task done and write it
         task.set_done(today);
-        task.force_no_styling = true;
-        writeln!(new_todo_file_writer, "{task}")?;
+        Self::write_task(&mut new_todo_file_writer, task.clone())?;
 
         // Write new recurring task if any
-        if let Some(mut new_recur_task) = task.recur(today) {
-            new_recur_task.force_no_styling = true;
-            writeln!(new_todo_file_writer, "{new_recur_task}")?;
+        if let Some(new_recur_task) = task.recur(today) {
+            Self::write_task(&mut new_todo_file_writer, new_recur_task)?;
         }
 
         // Overwrite task file
@@ -177,9 +172,8 @@ impl TodoFile {
             // Append to file
             let done_file = OpenOptions::new().append(true).open(&self.done_path)?;
             let mut done_writer = BufWriter::new(done_file);
-            for mut task in to_archive {
-                task.force_no_styling = true;
-                writeln!(done_writer, "{task}")?;
+            for task in to_archive {
+                Self::write_task(&mut done_writer, task)?;
             }
         }
 
@@ -220,6 +214,14 @@ impl TodoFile {
     #[allow(dead_code)]
     pub fn autobackup(&self, _today: &Date) -> anyhow::Result<()> {
         todo!();
+    }
+
+    fn write_task<W>(writer: &mut W, mut task: Task) -> io::Result<()>
+    where
+        W: Write,
+    {
+        task.force_no_styling = true;
+        writeln!(writer, "{task}")
     }
 }
 
