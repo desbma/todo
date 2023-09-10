@@ -5,6 +5,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::mpsc;
 
 use chrono::Duration;
 use lazy_static::lazy_static;
@@ -21,8 +22,8 @@ pub struct TodoFile {
 impl TodoFile {
     pub fn new(todo_path: &Path, done_path: &Path) -> anyhow::Result<Self> {
         Ok(Self {
-            todo_path: todo_path.to_path_buf(),
-            done_path: done_path.to_path_buf(),
+            todo_path: todo_path.canonicalize()?,
+            done_path: done_path.canonicalize()?,
         })
     }
 
@@ -60,16 +61,33 @@ impl TodoFile {
         Ok(())
     }
 
-    pub fn watch<F>(&self, handler: F) -> anyhow::Result<Box<dyn notify::Watcher>>
-    where
-        F: notify::EventHandler,
-    {
-        let mut watcher = Box::new(notify::recommended_watcher(handler)?);
+    pub fn watch(
+        &self,
+    ) -> anyhow::Result<(Box<dyn notify::Watcher>, mpsc::Receiver<notify::Event>)> {
+        let (event_tx, event_rx) = mpsc::channel();
+        let todo_path = self.todo_path.clone();
+        let mut watcher = Box::new(notify::recommended_watcher(
+            move |evt: notify::Result<notify::Event>| {
+                log::debug!("Watcher event {evt:?}");
+                if let Ok(evt) = evt {
+                    match evt.kind {
+                        notify::EventKind::Create(_)
+                        | notify::EventKind::Modify(_)
+                        | notify::EventKind::Remove(_) => {
+                            if evt.paths.contains(&todo_path) {
+                                let _ = event_tx.send(evt);
+                            }
+                        }
+                        _ => (),
+                    }
+                }
+            },
+        )?);
         watcher.watch(
             self.todo_path.parent().unwrap(),
             notify::RecursiveMode::NonRecursive,
         )?;
-        Ok(watcher)
+        Ok((watcher, event_rx))
     }
 
     pub fn add_task(&self, mut new_task: Task, today: &Date) -> anyhow::Result<()> {

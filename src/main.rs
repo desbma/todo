@@ -2,7 +2,6 @@ use std::env;
 use std::iter;
 use std::path::Path;
 use std::process::Command;
-use std::sync::mpsc::channel;
 use std::time::Duration;
 
 use anyhow::Context;
@@ -86,8 +85,7 @@ fn main() -> anyhow::Result<()> {
             let term = dialoguer::console::Term::stdout();
             let task_file = file::TodoFile::new(todotxt_path, done_path)?;
             if !no_watch {
-                let (event_tx, event_rx) = channel();
-                let _watcher = task_file.watch(event_tx).unwrap();
+                let (_watcher, event_rx) = task_file.watch()?;
                 let child_exe = env::current_exe()?;
                 let child_args: Vec<_> = env::args()
                     .skip(1)
@@ -109,8 +107,7 @@ fn main() -> anyhow::Result<()> {
                         };
 
                         for evt in event_rx.try_iter() {
-                            let evt = evt?;
-                            log::debug!("{evt:?}");
+                            log::debug!("Received watcher event {evt:?}");
                             match evt.kind {
                                 notify::EventKind::Create(_)
                                 | notify::EventKind::Modify(_)
