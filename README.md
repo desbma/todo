@@ -11,7 +11,7 @@
 - [x] Better default sorting (deprioritizes tasks before threshold date, etc.)
 - [x] FZF like menu with auto reload
 - [x] Recurrence, propagated to both `t` and `due` attributes, at 'do' time...
-  - [ ] ...and after it if task was marked as done from another device
+  - [x] ...and after it if task was marked as done from another device
 - [ ] Auto archival of done tasks, with subfiles
 - [ ] Dependencies
 - [x] Completely independant of `todo.sh`

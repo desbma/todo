@@ -183,13 +183,38 @@ impl TodoFile {
             }
         }
 
+        if to_archive_count > 0 {
+            log::info!("Archived {to_archive_count} task(s)");
+        }
         Ok(to_archive_count)
     }
 
-    #[allow(dead_code)]
-    #[allow(clippy::ptr_arg)]
-    pub fn auto_recur(&self, _tasks: &mut Vec<Task>, _today: &Date) -> anyhow::Result<()> {
-        todo!();
+    pub fn auto_recur(&self, tasks: &mut Vec<Task>) -> anyhow::Result<usize> {
+        let mut new_tasks: Vec<_> = tasks
+            .iter()
+            .filter(|t| {
+                matches!(t.status, CreationCompletion::Completed { .. })
+                    && t.recurrence().is_some()
+                    && !tasks.iter().any(|t2| {
+                        matches!(t2.status, CreationCompletion::Pending { .. }) && t.is_similar(t2)
+                    })
+            })
+            .map(|t| {
+                let completed_date = match t.status {
+                    CreationCompletion::Completed { completed, .. } => completed,
+                    _ => unreachable!(),
+                };
+                t.recur(&completed_date).unwrap()
+            })
+            .collect();
+
+        let new_task_count = new_tasks.len();
+        tasks.append(&mut new_tasks);
+
+        if new_task_count > 0 {
+            log::info!("Added {new_task_count} recurring task(s)");
+        }
+        Ok(new_task_count)
     }
 
     #[allow(dead_code)]

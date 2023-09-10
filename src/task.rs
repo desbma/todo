@@ -64,7 +64,7 @@ enum RecurrenceReference {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-struct Recurrence {
+pub struct Recurrence {
     delta: Duration,
     reference: RecurrenceReference,
 }
@@ -132,7 +132,7 @@ impl Task {
         }
     }
 
-    fn recurrence(&self) -> Option<Recurrence> {
+    pub fn recurrence(&self) -> Option<Recurrence> {
         self.attributes
             .iter()
             .find(|a| a.0 == "rec")
@@ -192,6 +192,25 @@ impl Task {
                 ..self.clone()
             })
         })
+    }
+
+    /// Return true if this task is similar (same task but different dates or status)
+    pub fn is_similar(&self, other: &Task) -> bool {
+        if (self.priority != other.priority)
+            || (self.tags != other.tags)
+            || (self.text != other.text)
+        {
+            return false;
+        }
+        let excluded_attributes = ["t", "due"];
+        return self
+            .attributes
+            .iter()
+            .filter(|(k, _v)| !excluded_attributes.contains(&k.as_str()))
+            .eq(other
+                .attributes
+                .iter()
+                .filter(|(k, _v)| !excluded_attributes.contains(&k.as_str())));
     }
 }
 
@@ -908,5 +927,68 @@ mod tests {
                 ..Task::default()
             })
         );
+    }
+
+    #[test]
+    fn test_is_similar() {
+        assert!(Task::default().is_similar(&Task::default()));
+
+        assert!(Task {
+            text: "task text".to_string(),
+            status: CreationCompletion::Pending { created: None },
+            ..Task::default()
+        }
+        .is_similar(&Task {
+            text: "task text".to_string(),
+            status: CreationCompletion::Completed {
+                completed: today(),
+                created: None
+            },
+            ..Task::default()
+        }));
+
+        assert!(Task {
+            text: "task text".to_string(),
+            status: CreationCompletion::Pending { created: None },
+            attributes: vec![
+                ("t".to_string(), "2023-09-15".to_string()),
+                ("rec".to_string(), "+1w".to_string()),
+            ],
+            ..Task::default()
+        }
+        .is_similar(&Task {
+            text: "task text".to_string(),
+            status: CreationCompletion::Completed {
+                completed: today(),
+                created: None
+            },
+            attributes: vec![
+                ("t".to_string(), "2023-09-16".to_string()),
+                ("rec".to_string(), "+1w".to_string()),
+            ],
+            ..Task::default()
+        }));
+
+        assert!(!Task {
+            text: "task text".to_string(),
+            status: CreationCompletion::Pending { created: None },
+            attributes: vec![
+                ("t".to_string(), "2023-09-15".to_string()),
+                ("rec".to_string(), "+1w".to_string()),
+            ],
+            ..Task::default()
+        }
+        .is_similar(&Task {
+            text: "task text".to_string(),
+            status: CreationCompletion::Completed {
+                completed: today(),
+                created: None
+            },
+            attributes: vec![
+                ("t".to_string(), "2023-09-16".to_string()),
+                ("rec".to_string(), "+2w".to_string()),
+            ],
+            ..Task::default()
+        }));
     }
 }
