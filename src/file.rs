@@ -121,11 +121,12 @@ impl TodoFile {
         let new_todo_file = tempfile::NamedTempFile::new_in(self.todo_path.parent().unwrap())?;
         let mut new_todo_file_writer = BufWriter::new(new_todo_file);
 
-        // Auto archive
+        // Auto recur
         let mut tasks = self.load_tasks()?;
-        self.auto_archive(&mut tasks, today)?;
+        self.auto_recur(&mut tasks)?;
 
-        // TODO auto recur
+        // Auto archive
+        self.auto_archive(&mut tasks, today)?;
 
         // Write other tasks to it
         for other_task in tasks.into_iter().filter(|t| *t != task) {
