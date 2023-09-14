@@ -113,14 +113,26 @@ impl TodoFile {
     }
 
     pub fn edit(&self, task: &Task) -> anyhow::Result<()> {
+        // Create temporary copy
+        let tmp_todo_file = tempfile::NamedTempFile::new_in(self.todo_path.parent().unwrap())?;
+        fs::copy(&self.todo_path, tmp_todo_file.path())?;
+
+        // Edit it
         let editor = env::var("EDITOR")?;
         Command::new(editor)
             .arg(format!(
                 "{}:{}",
-                self.todo_path.to_str().unwrap(),
+                tmp_todo_file.path().to_str().unwrap(),
                 task.index.unwrap() + 1
             ))
             .status()?;
+
+        // Backup and overwrite if different
+        if !Self::same_content(&self.todo_path, tmp_todo_file.path())? {
+            self.backup()?;
+            tmp_todo_file.persist(&self.todo_path)?;
+        }
+
         Ok(())
     }
 
@@ -230,6 +242,9 @@ impl TodoFile {
             if !src.is_file() {
                 continue;
             }
+            if dst.is_file() && Self::same_content(&src, &dst)? {
+                continue;
+            }
             log::debug!("{src:?} -> {dst:?}");
             fs::copy(src, dst)?;
         }
@@ -255,6 +270,16 @@ impl TodoFile {
     #[allow(dead_code)]
     pub fn undo(&self) -> anyhow::Result<()> {
         todo!();
+    }
+
+    fn same_content(path1: &Path, path2: &Path) -> anyhow::Result<bool> {
+        if path1.metadata()?.len() != path2.metadata()?.len() {
+            Ok(false)
+        } else {
+            // This is not the most efficient way to compare,
+            // but for files of a few KB, it does not matter
+            Ok(fs::read_to_string(path1)? == fs::read_to_string(path2)?)
+        }
     }
 
     fn write_task<W>(writer: &mut W, mut task: Task) -> io::Result<()>
