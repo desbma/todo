@@ -14,6 +14,8 @@ pub enum Action {
     },
     /// Add new task
     Add { args: Vec<String> },
+    /// Undo last action
+    Undo,
     /// Get pending task count
     PendingCount,
     /// Interactive task menu

@@ -75,6 +75,18 @@ fn main() -> anyhow::Result<()> {
             log::debug!("{new_task:?}");
             task_file.add_task(new_task, &today)?;
         }
+        cl::Action::Undo => {
+            let task_file = file::TodoFile::new(todotxt_path, done_path)?;
+            task_file.undo_diff()?;
+            let term = dialoguer::console::Term::stdout();
+            if dialoguer::Confirm::new()
+                .with_prompt("Apply above undo change?")
+                .default(false)
+                .interact_on(&term)?
+            {
+                task_file.undo()?;
+            }
+        }
         cl::Action::PendingCount => {
             let task_file = file::TodoFile::new(todotxt_path, done_path)?;
             let tasks = task_file.load_tasks()?;

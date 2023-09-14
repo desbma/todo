@@ -4,7 +4,7 @@ use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::mpsc;
 
 use chrono::Duration;
@@ -262,12 +262,35 @@ impl TodoFile {
         ))
     }
 
-    #[allow(dead_code)]
-    pub fn undo_diff(&self) -> anyhow::Result<String> {
-        todo!();
+    pub fn undo_diff(&self) -> anyhow::Result<()> {
+        let mut diff_child = Command::new("diff")
+            .args([
+                "-U",
+                "0",
+                self.todo_path.to_str().unwrap(),
+                self.backup_path(1).to_str().unwrap(),
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .spawn()?;
+        let delta_status = Command::new("delta")
+            .args([
+                "--default-language=todo.txt",
+                "--no-gitconfig",
+                "--file-style",
+                "omit",
+                "--hunk-header-style",
+                "omit",
+            ])
+            .stdin(diff_child.stdout.take().unwrap())
+            .status()?;
+        diff_child.wait()?;
+        if !delta_status.success() {
+            anyhow::bail!("delta failed with code {delta_status:?}")
+        }
+        Ok(())
     }
 
-    #[allow(dead_code)]
     pub fn undo(&self) -> anyhow::Result<()> {
         todo!();
     }
