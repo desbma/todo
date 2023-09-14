@@ -1,7 +1,7 @@
 //! Todo.txt file handling
 
 use std::env;
-use std::fs::{File, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -18,6 +18,8 @@ pub struct TodoFile {
     todo_path: PathBuf,
     done_path: PathBuf,
 }
+
+const UNDO_HISTORY_LEN: usize = 3;
 
 impl TodoFile {
     pub fn new(todo_path: &Path, done_path: &Path) -> anyhow::Result<Self> {
@@ -52,6 +54,9 @@ impl TodoFile {
         for task in tasks {
             Self::write_task(&mut new_todo_file_writer, task)?;
         }
+
+        // Backup
+        self.backup()?;
 
         // Overwrite task file
         let new_todo_file = new_todo_file_writer.into_inner()?;
@@ -97,6 +102,9 @@ impl TodoFile {
             };
         }
 
+        // Backup
+        self.backup()?;
+
         // Append to file
         let mut file = OpenOptions::new().append(true).open(&self.todo_path)?;
         Self::write_task(&mut file, new_task)?;
@@ -141,6 +149,9 @@ impl TodoFile {
         if let Some(new_recur_task) = task.recur(today) {
             Self::write_task(&mut new_todo_file_writer, new_recur_task)?;
         }
+
+        // Backup
+        self.backup()?;
 
         // Overwrite task file
         let new_todo_file = new_todo_file_writer.into_inner()?;
@@ -212,8 +223,37 @@ impl TodoFile {
         Ok(new_task_count)
     }
 
+    pub fn backup(&self) -> anyhow::Result<()> {
+        for src_idx in (1..UNDO_HISTORY_LEN).rev() {
+            let src = self.backup_path(src_idx);
+            let dst = self.backup_path(src_idx + 1);
+            if !src.is_file() {
+                continue;
+            }
+            log::debug!("{src:?} -> {dst:?}");
+            fs::copy(src, dst)?;
+        }
+        let dst = self.backup_path(1);
+        log::debug!("{:?} -> {:?}", self.todo_path, dst);
+        fs::copy(&self.todo_path, dst)?;
+        Ok(())
+    }
+
+    fn backup_path(&self, index: usize) -> PathBuf {
+        self.todo_path.with_file_name(format!(
+            "{}.bak.{}",
+            self.todo_path.file_name().unwrap().to_string_lossy(),
+            index
+        ))
+    }
+
     #[allow(dead_code)]
-    pub fn autobackup(&self, _today: &Date) -> anyhow::Result<()> {
+    pub fn undo_diff(&self) -> anyhow::Result<String> {
+        todo!();
+    }
+
+    #[allow(dead_code)]
+    pub fn undo(&self) -> anyhow::Result<()> {
         todo!();
     }
 
