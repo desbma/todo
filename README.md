@@ -15,7 +15,7 @@
 - [x] Auto archival of done tasks...
   - [ ] ...with subfiles
 - [x] Automatic backup
-- [ ] Undo
+- [x] Undo
 - [ ] Task dependencies
 - [x] Completely independant of `todo.sh`
 

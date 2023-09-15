@@ -19,7 +19,7 @@ pub struct TodoFile {
     done_path: PathBuf,
 }
 
-const UNDO_HISTORY_LEN: usize = 3;
+const UNDO_HISTORY_LEN: usize = 5;
 
 impl TodoFile {
     pub fn new(todo_path: &Path, done_path: &Path) -> anyhow::Result<Self> {
@@ -238,15 +238,15 @@ impl TodoFile {
     pub fn backup(&self) -> anyhow::Result<()> {
         for src_idx in (1..UNDO_HISTORY_LEN).rev() {
             let src = self.backup_path(src_idx);
-            let dst = self.backup_path(src_idx + 1);
             if !src.is_file() {
                 continue;
             }
+            let dst = self.backup_path(src_idx + 1);
             if dst.is_file() && Self::same_content(&src, &dst)? {
                 continue;
             }
             log::debug!("{src:?} -> {dst:?}");
-            fs::copy(src, dst)?;
+            fs::rename(src, dst)?;
         }
         let dst = self.backup_path(1);
         log::debug!("{:?} -> {:?}", self.todo_path, dst);
@@ -292,7 +292,20 @@ impl TodoFile {
     }
 
     pub fn undo(&self) -> anyhow::Result<()> {
-        todo!();
+        for src_idx in 1..UNDO_HISTORY_LEN + 1 {
+            let src = self.backup_path(src_idx);
+            if !src.is_file() {
+                break;
+            }
+            let dst = if src_idx == 1 {
+                self.todo_path.clone()
+            } else {
+                self.backup_path(src_idx - 1)
+            };
+            log::debug!("{src:?} -> {dst:?}");
+            fs::rename(src, dst)?;
+        }
+        Ok(())
     }
 
     fn same_content(path1: &Path, path2: &Path) -> anyhow::Result<bool> {
