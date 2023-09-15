@@ -214,7 +214,8 @@ impl TodoFile {
                 matches!(t.status, CreationCompletion::Completed { .. })
                     && t.recurrence().is_some()
                     && !tasks.iter().any(|t2| {
-                        matches!(t2.status, CreationCompletion::Pending { .. }) && t.is_similar(t2)
+                        matches!(t2.status, CreationCompletion::Pending { .. })
+                            && t.is_same_recurring(t2)
                     })
             })
             .map(|t| {
