@@ -7,9 +7,11 @@ use std::str::FromStr;
 use chrono::Duration;
 use regex::{Regex, RegexBuilder};
 
-use crate::today;
-
 pub type Date = chrono::naive::NaiveDate;
+
+fn today() -> Date {
+    chrono::Local::now().date_naive()
+}
 
 #[derive(Debug, Clone, Eq, PartialEq, strum::EnumString, strum::AsRefStr)]
 pub enum TagKind {
@@ -211,9 +213,9 @@ impl fmt::Display for Task {
         let today = today();
 
         let base_style = if self.force_no_styling || cfg!(test) {
-            dialoguer::console::Style::new().force_styling(false)
+            console::Style::new().force_styling(false)
         } else {
-            dialoguer::console::Style::new().for_stdout()
+            console::Style::new().for_stdout()
         };
 
         let before_threshold = self.threshold_date().map(|d| d > today).unwrap_or(false);

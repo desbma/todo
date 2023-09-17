@@ -9,12 +9,10 @@ use clap::Parser;
 use wait_timeout::ChildExt;
 
 mod cl;
-mod file;
-mod task;
 
-use task::Date;
+use tasks::{Date, TodoFile};
 
-pub fn today() -> Date {
+fn today() -> Date {
     chrono::Local::now().date_naive()
 }
 
@@ -41,7 +39,7 @@ fn main() -> anyhow::Result<()> {
     let cl_args = cl::Action::parse();
     match cl_args {
         cl::Action::List => {
-            let task_file = file::TodoFile::new(todotxt_path, done_path)?;
+            let task_file = TodoFile::new(todotxt_path, done_path)?;
             let mut tasks = task_file.load_tasks()?;
             log::trace!("{tasks:#?}");
             tasks.sort_unstable();
@@ -51,7 +49,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
         cl::Action::Next { simple } => {
-            let task_file = file::TodoFile::new(todotxt_path, done_path)?;
+            let task_file = TodoFile::new(todotxt_path, done_path)?;
             let tasks = task_file.load_tasks()?;
             if let Some(task) = tasks.iter().filter(|t| t.is_pending(&today)).max() {
                 if simple {
@@ -70,13 +68,13 @@ fn main() -> anyhow::Result<()> {
             }
         }
         cl::Action::Add { args } => {
-            let task_file = file::TodoFile::new(todotxt_path, done_path)?;
+            let task_file = TodoFile::new(todotxt_path, done_path)?;
             let new_task = args.join(" ").parse()?;
             log::debug!("{new_task:?}");
             task_file.add_task(new_task, &today)?;
         }
         cl::Action::Undo => {
-            let task_file = file::TodoFile::new(todotxt_path, done_path)?;
+            let task_file = TodoFile::new(todotxt_path, done_path)?;
             task_file.undo_diff()?;
             let term = dialoguer::console::Term::stdout();
             if dialoguer::Confirm::new()
@@ -88,14 +86,14 @@ fn main() -> anyhow::Result<()> {
             }
         }
         cl::Action::PendingCount => {
-            let task_file = file::TodoFile::new(todotxt_path, done_path)?;
+            let task_file = TodoFile::new(todotxt_path, done_path)?;
             let tasks = task_file.load_tasks()?;
             let pending = tasks.iter().filter(|t| t.is_pending(&today)).count();
             println!("{pending}");
         }
         cl::Action::Menu { no_watch } => {
             let term = dialoguer::console::Term::stdout();
-            let task_file = file::TodoFile::new(todotxt_path, done_path)?;
+            let task_file = TodoFile::new(todotxt_path, done_path)?;
             if !no_watch {
                 let (_watcher, event_rx) = task_file.watch()?;
                 let child_exe = env::current_exe()?;
@@ -118,16 +116,9 @@ fn main() -> anyhow::Result<()> {
                             return Ok(());
                         };
 
-                        for evt in event_rx.try_iter() {
-                            log::debug!("Received watcher event {evt:?}");
-                            match evt.kind {
-                                notify::EventKind::Create(_)
-                                | notify::EventKind::Modify(_)
-                                | notify::EventKind::Remove(_) => {
-                                    restart_child = true;
-                                }
-                                _ => (),
-                            }
+                        for _ in event_rx.try_iter() {
+                            log::debug!("Received watcher event");
+                            restart_child = true;
                         }
                     }
 
@@ -177,7 +168,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
         cl::Action::Auto => {
-            let task_file = file::TodoFile::new(todotxt_path, done_path)?;
+            let task_file = TodoFile::new(todotxt_path, done_path)?;
             let mut tasks = task_file.load_tasks()?;
             let added_count = task_file.auto_recur(&mut tasks)?;
             let archived_count = task_file.auto_archive(&mut tasks, &today)?;

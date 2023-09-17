@@ -1,0 +1,15 @@
+[package]
+name = "todo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { version = "1.0.75", default-features = false, features = ["std", "backtrace"] }
+chrono = { version = "0.4.26", default-features = false, features = ["std", "clock"] }
+clap = { version = "4.3.22", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
+dialoguer = { version = "0.10.4", default-features = false, features = ["fuzzy-select"] }
+log = { version = "0.4.20", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
+nix = { version = "0.27.1", default-features = false, features = ["signal"] }
+simple_logger = { version = "4.2.0", default-features = false, features = ["colors", "stderr"] }
+tasks = { path = "../tasks" }
+wait-timeout = { version = "0.2.0", default-features = false }

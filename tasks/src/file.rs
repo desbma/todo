@@ -65,9 +65,7 @@ impl TodoFile {
         Ok(())
     }
 
-    pub fn watch(
-        &self,
-    ) -> anyhow::Result<(Box<dyn notify::Watcher>, mpsc::Receiver<notify::Event>)> {
+    pub fn watch(&self) -> anyhow::Result<(Box<dyn notify::Watcher>, mpsc::Receiver<()>)> {
         let (event_tx, event_rx) = mpsc::channel();
         let todo_path = self.todo_path.clone();
         let mut watcher = Box::new(notify::recommended_watcher(
@@ -79,7 +77,7 @@ impl TodoFile {
                         | notify::EventKind::Modify(_)
                         | notify::EventKind::Remove(_) => {
                             if evt.paths.contains(&todo_path) {
-                                let _ = event_tx.send(evt);
+                                let _ = event_tx.send(());
                             }
                         }
                         _ => (),
