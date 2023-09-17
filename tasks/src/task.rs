@@ -113,21 +113,21 @@ impl Task {
         }
     }
 
-    fn threshold_date(&self) -> Option<Date> {
+    pub fn threshold_date(&self) -> Option<Date> {
         self.attributes
             .iter()
             .find(|a| a.0 == "t")
             .and_then(|a| Date::parse_from_str(&a.1, DATE_FORMAT).ok())
     }
 
-    fn due_date(&self) -> Option<Date> {
+    pub fn due_date(&self) -> Option<Date> {
         self.attributes
             .iter()
             .find(|a| a.0 == "due")
             .and_then(|a| Date::parse_from_str(&a.1, DATE_FORMAT).ok())
     }
 
-    fn created_date(&self) -> Option<Date> {
+    pub fn created_date(&self) -> Option<Date> {
         match self.status {
             CreationCompletion::Pending { created } => created,
             CreationCompletion::Completed { created, .. } => created,
