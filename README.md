@@ -54,7 +54,7 @@ Weaknesses:
 
 ### Goals
 
-The goals of this project is to improve the weaknesses of Todo.txt for my use cases, while keeping the flexibility, easy of sync, and existing ecosystem compatibility of the original text format.
+The goals of this project is to improve the weaknesses of Todo.txt for my use cases, while keeping the flexibility, ease of sync, and existing ecosystem compatibility of the original text format.
 
 ## Installation
 
