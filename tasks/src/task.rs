@@ -72,6 +72,7 @@ pub struct Recurrence {
 }
 
 const DATE_FORMAT: &str = "%Y-%m-%d";
+const RECURRENCE_TAG_KEYS: [&str; 2] = ["rec", "rec2"];
 
 lazy_static::lazy_static! {
     static ref REC_REGEX: Regex = Regex::new(r"(?<ref>\+?)(?<val>\d+)(?<unit>d|w|m|y)").unwrap();
@@ -137,7 +138,7 @@ impl Task {
     pub fn recurrence(&self) -> Option<Recurrence> {
         self.attributes
             .iter()
-            .find(|a| a.0 == "rec")
+            .find(|a| RECURRENCE_TAG_KEYS.contains(&a.0.as_str()))
             .and_then(|v| v.1.parse().ok())
     }
 
@@ -201,8 +202,14 @@ impl Task {
         // We allow difference in tags and attributes to avoid auto recurrence from
         // creating duplicates when the pending task is edited
         (self.text == other.text)
-            && (self.attributes.iter().any(|(k, _v)| k == "rec")
-                == other.attributes.iter().any(|(k, _v)| k == "rec"))
+            && (self
+                .attributes
+                .iter()
+                .any(|(k, _v)| RECURRENCE_TAG_KEYS.contains(&k.as_str()))
+                == other
+                    .attributes
+                    .iter()
+                    .any(|(k, _v)| RECURRENCE_TAG_KEYS.contains(&k.as_str())))
     }
 }
 
