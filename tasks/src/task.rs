@@ -135,6 +135,13 @@ impl Task {
         }
     }
 
+    pub fn completed_date(&self) -> Option<Date> {
+        match self.status {
+            CreationCompletion::Pending { .. } => None,
+            CreationCompletion::Completed { completed, .. } => Some(completed),
+        }
+    }
+
     pub fn recurrence(&self) -> Option<Recurrence> {
         self.attributes
             .iter()

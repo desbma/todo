@@ -10,7 +10,7 @@ use wait_timeout::ChildExt;
 
 mod cl;
 
-use tasks::{Date, TodoFile};
+use tasks::{CreationCompletion, Date, TodoFile};
 
 fn today() -> Date {
     chrono::Local::now().date_naive()
@@ -90,6 +90,22 @@ fn main() -> anyhow::Result<()> {
             let tasks = task_file.load_tasks()?;
             let pending = tasks.iter().filter(|t| t.is_pending(&today)).count();
             println!("{pending}");
+        }
+        cl::Action::Report { days } => {
+            let task_file = TodoFile::new(todotxt_path, done_path)?;
+            let date_limit = today - chrono::Duration::days(days as i64);
+            let mut tasks = task_file.filter_all(|t| match t.status {
+                CreationCompletion::Pending { created } => {
+                    created.map(|c| c >= date_limit).unwrap_or(false) && t.recurrence().is_none()
+                }
+                CreationCompletion::Completed { created, completed } => {
+                    created.map(|c| c >= date_limit).unwrap_or(false) || (completed >= date_limit)
+                }
+            })?;
+            tasks.sort_by_key(|t| t.completed_date().or_else(|| t.created_date()));
+            for task in tasks {
+                println!("{task}");
+            }
         }
         cl::Action::Menu { no_watch } => {
             let term = dialoguer::console::Term::stdout();

@@ -18,6 +18,8 @@ pub enum Action {
     Undo,
     /// Get pending task count
     PendingCount,
+    /// Get tasks created or done in the most recent days
+    Report { days: usize },
     /// Interactive task menu
     Menu {
         #[arg(short, long, default_value_t = false)]

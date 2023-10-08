@@ -16,6 +16,7 @@
   - [ ] ...with subfiles
 - [x] Automatic backup
 - [x] Undo
+- [x] Report of tasks created/completed in the last _N_ days
 - [ ] Task dependencies
 - [x] Completely independant of `todo.sh`
 

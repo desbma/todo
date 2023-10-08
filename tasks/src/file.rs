@@ -2,7 +2,7 @@
 
 use std::env;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufRead, BufReader, BufWriter, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
@@ -323,6 +323,21 @@ impl TodoFile {
     {
         task.force_no_styling = true;
         writeln!(writer, "{task}")
+    }
+
+    pub fn filter_all<F>(&self, f: F) -> anyhow::Result<Vec<Task>>
+    where
+        F: Copy + Fn(&Task) -> bool,
+    {
+        let todo_file = File::open(&self.todo_path)?;
+        let done_file = File::open(&self.done_path)?;
+        let reader = BufReader::new(todo_file).chain(BufReader::new(done_file));
+        let r = reader
+            .lines()
+            .flat_map(|l| l.map(|l| l.parse()))
+            .filter(|r| r.as_ref().map(f).unwrap_or(true))
+            .collect::<Result<_, _>>()?;
+        Ok(r)
     }
 }
 
