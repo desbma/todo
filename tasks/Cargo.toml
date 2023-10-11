@@ -13,3 +13,4 @@ notify = { version = "6.1.1", default-features = false }
 regex = { version = "1.9.3", default-features = false, features = ["std", "unicode"] }
 strum = { version = "0.25.0", default-features = false, features = ["std", "derive"] }
 tempfile = { version = "3.8.0", default-features = false }
+zstd = { version = "0.13.0", default-features = false, features = ["fat-lto", "pkg-config"] }

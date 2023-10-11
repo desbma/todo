@@ -20,6 +20,12 @@ pub struct TodoFile {
 }
 
 const UNDO_HISTORY_LEN: usize = 5;
+const DONE_FILE_TASK_COUNT_COMPRESS_THRESHOLD: usize = 2000;
+const DONE_FILE_TASK_COUNT_TARGET: usize = 1000;
+const ZSTD_COMPRESSION_LEVEL: i32 = 19;
+lazy_static! {
+    static ref AUTO_ARCHIVE_COMPLETED_THRESHOLD: Duration = Duration::days(2);
+}
 
 impl TodoFile {
     pub fn new(todo_path: &Path, done_path: &Path) -> anyhow::Result<Self> {
@@ -171,10 +177,6 @@ impl TodoFile {
     }
 
     pub fn auto_archive(&self, tasks: &mut Vec<Task>, today: &Date) -> anyhow::Result<usize> {
-        lazy_static! {
-            static ref AUTO_ARCHIVE_COMPLETED_THRESHOLD: Duration = Duration::days(2);
-        }
-
         // TODO use https://doc.rust-lang.org/std/vec/struct.Vec.html#method.extract_if when stabilized
         let mut to_archive = Vec::new();
         let mut i = 0;
@@ -199,10 +201,77 @@ impl TodoFile {
             }
         }
 
-        if to_archive_count > 0 {
-            log::info!("Archived {to_archive_count} task(s)");
+        let archived_count = to_archive_count;
+        if archived_count > 0 {
+            log::info!("Archived {archived_count} task(s)");
         }
-        Ok(to_archive_count)
+
+        // Compress done tasks if needed
+        // NB: optimized for common case, which is to count lines and bail out
+        let done_file = File::open(&self.done_path)?;
+        let done_reader = BufReader::new(done_file);
+        let done_line_count = done_reader.lines().count();
+        if done_line_count >= DONE_FILE_TASK_COUNT_COMPRESS_THRESHOLD {
+            // Read done lines
+            let done_lines: Vec<_> = fs::read_to_string(&self.done_path)?
+                .lines()
+                .map(|l| l.to_string())
+                .collect();
+
+            // Split done file
+            let new_done_lines = &done_lines[done_line_count - DONE_FILE_TASK_COUNT_TARGET..];
+            debug_assert_eq!(new_done_lines.len(), DONE_FILE_TASK_COUNT_TARGET);
+            let to_compress_lines = &done_lines[..done_line_count - DONE_FILE_TASK_COUNT_TARGET];
+
+            // Open existing compressed file
+            let compressed_filepath = self.done_path.with_file_name(format!(
+                "{}.zst",
+                self.done_path.file_name().unwrap().to_string_lossy(),
+            ));
+            let compressed_file_reader = if compressed_filepath.exists() {
+                let compressed_file = File::open(&compressed_filepath)?;
+                Some(zstd::Decoder::with_buffer(BufReader::new(compressed_file))?)
+            } else {
+                None
+            };
+
+            // Create new compressed file
+            let new_compressed_file =
+                tempfile::NamedTempFile::new_in(compressed_filepath.parent().unwrap())?;
+            let mut new_compressed_file_writer =
+                zstd::Encoder::new(BufWriter::new(new_compressed_file), ZSTD_COMPRESSION_LEVEL)?;
+
+            // Write tasks that were already compressed and new ones
+            if let Some(mut compressed_file_reader) = compressed_file_reader {
+                io::copy(&mut compressed_file_reader, &mut new_compressed_file_writer)?;
+            }
+            for to_compress_line in to_compress_lines {
+                writeln!(new_compressed_file_writer, "{to_compress_line}")?;
+            }
+            let new_compressed_file_writer = new_compressed_file_writer.finish()?;
+            let compressed_task_count = to_compress_lines.len();
+
+            // Create new done file
+            let new_done_file = tempfile::NamedTempFile::new_in(self.done_path.parent().unwrap())?;
+            let mut new_done_file_writer = BufWriter::new(new_done_file);
+
+            // Write done lines
+            for new_done_line in new_done_lines {
+                writeln!(new_done_file_writer, "{new_done_line}")?;
+            }
+
+            // Overwrite compressed file
+            let new_compressed_file = new_compressed_file_writer.into_inner()?;
+            new_compressed_file.persist(&compressed_filepath)?;
+
+            // Overwrite done file
+            let new_done_file = new_done_file_writer.into_inner()?;
+            new_done_file.persist(&self.done_path)?;
+
+            log::info!("Compressed {compressed_task_count} archived tasks");
+        }
+
+        Ok(archived_count)
     }
 
     pub fn auto_recur(&self, tasks: &mut Vec<Task>) -> anyhow::Result<usize> {

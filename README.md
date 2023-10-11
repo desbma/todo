@@ -13,7 +13,7 @@
 - [x] Task recurrence, propagated to both `t` and `due` attributes, at 'do' time...
   - [x] ...and after it if task was marked as done from another device
 - [x] Auto archival of done tasks...
-  - [ ] ...with subfiles
+  - [x] ...with compression for old tasks
 - [x] Automatic backup
 - [x] Undo
 - [x] Report of tasks created/completed in the last _N_ days
