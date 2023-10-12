@@ -492,6 +492,17 @@ impl Ord for Task {
             _ => (),
         }
 
+        // Having due date is more important than not having one, if not before threshold
+        match (due, other_due) {
+            (Some(_), None) if self.is_pending(&today) => {
+                return Ordering::Greater;
+            }
+            (None, Some(_)) if other.is_pending(&today) => {
+                return Ordering::Less;
+            }
+            _ => (),
+        }
+
         // Created date
         if let (Some(created), Some(other_created)) = (self.created_date(), other.created_date()) {
             return other_created.cmp(&created);
