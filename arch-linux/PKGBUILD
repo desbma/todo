@@ -7,7 +7,7 @@ arch=('x86_64')
 url="https://github.com/desbma/${pkgname}"
 license=('GPL')
 depends=('gcc-libs' 'zstd')
-makedepends=('cargo')
+makedepends=('cargo' 'git')
 source=("git+https://github.com/desbma/${pkgname}")
 sha512sums=('SKIP')
 
