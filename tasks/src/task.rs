@@ -268,12 +268,16 @@ impl fmt::Display for Task {
             }
         }
 
-        let tag_style = if !single_global_style {
-            base_style.clone().cyan()
-        } else {
-            base_style.clone()
-        };
         for tag in &self.tags {
+            let tag_style = if single_global_style {
+                base_style.clone()
+            } else {
+                match tag.kind {
+                    TagKind::Plus => base_style.clone().cyan(),
+                    TagKind::Hash => base_style.clone().yellow(),
+                    TagKind::Arobase => base_style.clone().blue(),
+                }
+            };
             segments.push(
                 tag_style
                     .apply_to(format!("{}{}", tag.kind.as_ref(), tag.value))
