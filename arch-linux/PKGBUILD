@@ -1,6 +1,6 @@
 # Maintainer: desbma
 pkgname=todo
-pkgver=2023.10.15
+pkgver=2023.10.20
 pkgrel=1
 pkgdesc='Todo.txt terminal frontend'
 arch=('x86_64')

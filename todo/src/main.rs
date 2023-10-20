@@ -16,7 +16,7 @@ fn today() -> Date {
     chrono::Local::now().date_naive()
 }
 
-const TASK_ACTIONS: [&str; 2] = ["Mark as done", "Edit"];
+const TASK_ACTIONS: [&str; 3] = ["Mark as done", "Edit", "Start"];
 
 fn main() -> anyhow::Result<()> {
     // Init logger
@@ -173,6 +173,9 @@ fn main() -> anyhow::Result<()> {
                                 }
                                 Some(1) => {
                                     task_file.edit(task)?;
+                                }
+                                Some(2) => {
+                                    task_file.start(task, &today)?;
                                 }
                                 Some(_) => unreachable!(),
                                 None => (),

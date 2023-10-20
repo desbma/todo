@@ -140,6 +140,36 @@ impl TodoFile {
         Ok(())
     }
 
+    pub fn start(&self, task: &Task, today: &Date) -> anyhow::Result<()> {
+        // Create new file
+        let new_todo_file = tempfile::NamedTempFile::new_in(self.todo_path.parent().unwrap())?;
+        let mut new_todo_file_writer = BufWriter::new(new_todo_file);
+
+        // Auto recur
+        let mut tasks = self.load_tasks()?;
+        self.auto_recur(&mut tasks)?;
+
+        // Auto archive
+        self.auto_archive(&mut tasks, today)?;
+
+        // Write tasks to it
+        for mut cur_task in tasks.into_iter() {
+            if cur_task == *task {
+                cur_task.start(today);
+            }
+            Self::write_task(&mut new_todo_file_writer, cur_task)?;
+        }
+
+        // Backup
+        self.backup()?;
+
+        // Overwrite task file
+        let new_todo_file = new_todo_file_writer.into_inner()?;
+        new_todo_file.persist(&self.todo_path)?;
+
+        Ok(())
+    }
+
     pub fn set_done(&self, mut task: Task, today: &Date) -> anyhow::Result<()> {
         // Create new file
         let new_todo_file = tempfile::NamedTempFile::new_in(self.todo_path.parent().unwrap())?;

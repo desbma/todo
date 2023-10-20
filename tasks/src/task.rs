@@ -218,6 +218,17 @@ impl Task {
                     .iter()
                     .any(|(k, _v)| RECURRENCE_TAG_KEYS.contains(&k.as_str())))
     }
+
+    /// Set or update started attribute
+    pub fn start(&mut self, today: &Date) {
+        // Add/update started attribute
+        let started_date = today.format(DATE_FORMAT).to_string();
+        if let Some(started) = self.attributes.iter_mut().find(|a| a.0 == "started") {
+            started.1 = started_date;
+        } else {
+            self.attributes.push(("started".to_string(), started_date))
+        }
+    }
 }
 
 impl fmt::Display for Task {
