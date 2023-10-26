@@ -58,7 +58,7 @@ impl TodoFile {
 
         // Write tasks to it
         for task in tasks {
-            Self::write_task(&mut new_todo_file_writer, task)?;
+            Self::write_task(&mut new_todo_file_writer, &task)?;
         }
 
         // Backup
@@ -111,7 +111,7 @@ impl TodoFile {
 
         // Append to file
         let mut file = OpenOptions::new().append(true).open(&self.todo_path)?;
-        Self::write_task(&mut file, new_task)?;
+        Self::write_task(&mut file, &new_task)?;
 
         Ok(())
     }
@@ -157,7 +157,7 @@ impl TodoFile {
             if cur_task == *task {
                 cur_task.start(today);
             }
-            Self::write_task(&mut new_todo_file_writer, cur_task)?;
+            Self::write_task(&mut new_todo_file_writer, &cur_task)?;
         }
 
         // Backup
@@ -183,17 +183,17 @@ impl TodoFile {
         self.auto_archive(&mut tasks, today)?;
 
         // Write other tasks to it
-        for other_task in tasks.into_iter().filter(|t| *t != task) {
+        for other_task in tasks.iter().filter(|t| **t != task) {
             Self::write_task(&mut new_todo_file_writer, other_task)?;
         }
 
         // Set task done and write it
         task.set_done(today);
-        Self::write_task(&mut new_todo_file_writer, task.clone())?;
+        Self::write_task(&mut new_todo_file_writer, &task)?;
 
         // Write new recurring task if any
         if let Some(new_recur_task) = task.recur(today) {
-            Self::write_task(&mut new_todo_file_writer, new_recur_task)?;
+            Self::write_task(&mut new_todo_file_writer, &new_recur_task)?;
         }
 
         // Backup
@@ -227,7 +227,7 @@ impl TodoFile {
             let done_file = OpenOptions::new().append(true).open(&self.done_path)?;
             let mut done_writer = BufWriter::new(done_file);
             for task in to_archive {
-                Self::write_task(&mut done_writer, task)?;
+                Self::write_task(&mut done_writer, &task)?;
             }
         }
 
@@ -416,12 +416,11 @@ impl TodoFile {
         }
     }
 
-    fn write_task<W>(writer: &mut W, mut task: Task) -> io::Result<()>
+    fn write_task<W>(writer: &mut W, task: &Task) -> io::Result<()>
     where
         W: Write,
     {
-        task.force_no_styling = true;
-        writeln!(writer, "{task}")
+        writeln!(writer, "{}", task.to_string(None, false, &[]))
     }
 
     pub fn filter_all<F>(&self, f: F) -> anyhow::Result<Vec<Task>>

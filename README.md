@@ -5,7 +5,7 @@
 
 [Todo.txt](http://todotxt.org/) terminal frontend
 
-## Features (work in progress)
+## Features
 
 - [x] Colored output, respecting native terminal colors
 - [x] Better default sorting (deprioritizes tasks before threshold date, etc.)
@@ -17,7 +17,7 @@
 - [x] Automatic backup
 - [x] Undo
 - [x] Report of tasks created/completed in the last _N_ days
-- [ ] Task dependencies
+- [x] Task dependencies
 - [x] Completely independant of `todo.sh`
 
 ## Rationale

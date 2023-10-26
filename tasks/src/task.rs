@@ -1,7 +1,6 @@
 //! Todo.txt task
 
 use std::cmp::Ordering;
-use std::fmt;
 use std::str::FromStr;
 
 use chrono::Duration;
@@ -55,8 +54,6 @@ pub struct Task {
     pub attributes: Vec<(String, String)>,
     pub text: String,
     pub index: Option<usize>,
-
-    pub force_no_styling: bool,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -105,6 +102,7 @@ impl FromStr for Recurrence {
 }
 
 impl Task {
+    /// Is task not completed and before threshold?
     pub fn is_pending(&self, today: &Date) -> bool {
         match self.status {
             CreationCompletion::Pending { .. } => {
@@ -114,18 +112,42 @@ impl Task {
         }
     }
 
-    pub fn threshold_date(&self) -> Option<Date> {
+    /// Is task depending on another pending task?
+    fn is_blocked(&self, others: &[Task]) -> bool {
+        self.depends_on().iter().any(|id| {
+            others.iter().any(|t| {
+                matches!(t.status, CreationCompletion::Pending { .. })
+                    && t.attribute("id") == Some(*id)
+            })
+        })
+    }
+
+    /// Is task ready to be worked on?
+    pub fn is_ready(&self, today: &Date, others: &[Task]) -> bool {
+        self.is_pending(today) && !self.is_blocked(others)
+    }
+
+    fn attribute(&self, name: &str) -> Option<&str> {
         self.attributes
             .iter()
-            .find(|a| a.0 == "t")
-            .and_then(|a| Date::parse_from_str(&a.1, DATE_FORMAT).ok())
+            .find(|a| a.0 == name)
+            .map(|a| a.1.as_str())
+    }
+
+    fn depends_on(&self) -> Vec<&str> {
+        self.attribute("dep")
+            .map(|d| d.split(',').collect())
+            .unwrap_or_default()
+    }
+
+    pub fn threshold_date(&self) -> Option<Date> {
+        self.attribute("t")
+            .and_then(|t| Date::parse_from_str(t, DATE_FORMAT).ok())
     }
 
     pub fn due_date(&self) -> Option<Date> {
-        self.attributes
-            .iter()
-            .find(|a| a.0 == "due")
-            .and_then(|a| Date::parse_from_str(&a.1, DATE_FORMAT).ok())
+        self.attribute("due")
+            .and_then(|d| Date::parse_from_str(d, DATE_FORMAT).ok())
     }
 
     pub fn created_date(&self) -> Option<Date> {
@@ -229,24 +251,125 @@ impl Task {
             self.attributes.push(("started".to_string(), started_date))
         }
     }
-}
 
-impl fmt::Display for Task {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    /// Compare tasks for sorting
+    pub fn cmp(&self, other: &Self, others: &[Self]) -> Ordering {
+        // Completed is obviously less urgent than pending
+        match (&self.status, &other.status) {
+            (CreationCompletion::Completed { .. }, CreationCompletion::Pending { .. }) => {
+                return Ordering::Less;
+            }
+            (CreationCompletion::Pending { .. }, CreationCompletion::Completed { .. }) => {
+                return Ordering::Greater;
+            }
+            _ => (),
+        }
+
+        // Before threshold is less urgent
+        let today = today();
+        let threshold_diff = self
+            .threshold_date()
+            .map(|t| today.signed_duration_since(t));
+        let other_threshold_diff = other
+            .threshold_date()
+            .map(|t| today.signed_duration_since(t));
+        match (threshold_diff, other_threshold_diff) {
+            (Some(d), Some(od))
+                if d < chrono::Duration::zero() && od >= chrono::Duration::zero() =>
+            {
+                return Ordering::Less;
+            }
+            (Some(d), Some(od))
+                if d >= chrono::Duration::zero() && od < chrono::Duration::zero() =>
+            {
+                return Ordering::Greater;
+            }
+            (Some(d), None) if d < chrono::Duration::zero() => {
+                return Ordering::Less;
+            }
+            (None, Some(od)) if od < chrono::Duration::zero() => {
+                return Ordering::Greater;
+            }
+            _ => (),
+        }
+
+        // Due date
+        let due = self.due_date();
+        let other_due = other.due_date();
+        match (due, other_due) {
+            (Some(d), Some(od)) if d != od => {
+                return od.cmp(&d);
+            }
+            (Some(d), None) if d <= today => {
+                return Ordering::Greater;
+            }
+            (None, Some(od)) if od <= today => {
+                return Ordering::Less;
+            }
+            _ => (),
+        }
+
+        // Being blocked is less urgent that not being
+        match (self.is_blocked(others), other.is_blocked(others)) {
+            (true, false) => {
+                return Ordering::Less;
+            }
+            (false, true) => {
+                return Ordering::Greater;
+            }
+            _ => (),
+        }
+
+        // Explicit priority, no priority is less urgent than 'D' priority
+        match (self.priority, other.priority) {
+            (Some(p), Some(op)) if p != op => {
+                return op.cmp(&p);
+            }
+            (Some(p), None) if p < 'D' => {
+                return Ordering::Greater;
+            }
+            (None, Some(op)) if op < 'D' => {
+                return Ordering::Less;
+            }
+            _ => (),
+        }
+
+        // Having due date is more important than not having one, if not before threshold
+        match (due, other_due) {
+            (Some(_), None) if self.is_pending(&today) => {
+                return Ordering::Greater;
+            }
+            (None, Some(_)) if other.is_pending(&today) => {
+                return Ordering::Less;
+            }
+            _ => (),
+        }
+
+        // Created date
+        if let (Some(created), Some(other_created)) = (self.created_date(), other.created_date()) {
+            return other_created.cmp(&created);
+        }
+
+        Ordering::Equal
+    }
+
+    pub fn to_string(&self, today: Option<&Date>, style: bool, others: &[Task]) -> String {
         let mut segments = Vec::new();
 
-        let today = today();
-
-        let base_style = if self.force_no_styling || cfg!(test) {
-            console::Style::new().force_styling(false)
-        } else {
+        let base_style = if style {
             console::Style::new().for_stdout()
+        } else {
+            console::Style::new().force_styling(false)
         };
 
-        let before_threshold = self.threshold_date().map(|d| d > today).unwrap_or(false);
-        let overdue = self.due_date().map(|d| d <= today).unwrap_or(false);
-        let single_global_style =
-            before_threshold || matches!(self.status, CreationCompletion::Completed { .. });
+        let (overdue, single_global_style) = if let Some(today) = today {
+            (
+                self.due_date().map(|d| d <= *today).unwrap_or(false),
+                !self.is_ready(today, others),
+            )
+        } else {
+            (false, false)
+        };
 
         match self.status {
             CreationCompletion::Pending { created } => {
@@ -260,13 +383,19 @@ impl fmt::Display for Task {
                     segments.push(priority_style.apply_to(format!("({priority})")).to_string());
                 }
                 if let Some(created) = created {
-                    let created_style = match today.signed_duration_since(created).num_days() {
-                        d if (0..=7).contains(&d) && !single_global_style => {
-                            base_style.clone().dim()
+                    let created_style = if let Some(today) = today {
+                        match today.signed_duration_since(created).num_days() {
+                            d if (0..=7).contains(&d) && !single_global_style => {
+                                base_style.clone().dim()
+                            }
+                            d if (8..=30).contains(&d) && !single_global_style => {
+                                base_style.clone()
+                            }
+                            _ if !single_global_style => base_style.clone().bold(),
+                            _ => base_style.clone(),
                         }
-                        d if (8..=30).contains(&d) && !single_global_style => base_style.clone(),
-                        _ if !single_global_style => base_style.clone().bold(),
-                        _ => base_style.clone(),
+                    } else {
+                        base_style.clone()
                     };
                     segments.push(created_style.apply_to(format!("{created}")).to_string());
                 }
@@ -326,11 +455,14 @@ impl fmt::Display for Task {
                 .strikethrough()
                 .apply_to(line)
                 .to_string();
-        } else if before_threshold {
-            line = base_style.clone().dim().apply_to(line).to_string();
+        } else if self.is_blocked(others) {
+            line = base_style.clone().italic().apply_to(line).to_string();
+        } else if let Some(today) = today {
+            if !self.is_pending(today) {
+                line = base_style.clone().dim().apply_to(line).to_string();
+            }
         }
-
-        write!(f, "{}", line)
+        line
     }
 }
 
@@ -431,105 +563,7 @@ impl FromStr for Task {
             attributes,
             text,
             index: None,
-            force_no_styling: false,
         })
-    }
-}
-
-impl Ord for Task {
-    fn cmp(&self, other: &Self) -> Ordering {
-        // Completed is obviously less urgent than pending
-        match (&self.status, &other.status) {
-            (CreationCompletion::Completed { .. }, CreationCompletion::Pending { .. }) => {
-                return Ordering::Less;
-            }
-            (CreationCompletion::Pending { .. }, CreationCompletion::Completed { .. }) => {
-                return Ordering::Greater;
-            }
-            _ => (),
-        }
-
-        // Before threshold is less urgent
-        let today = today();
-        let threshold_diff = self
-            .threshold_date()
-            .map(|t| today.signed_duration_since(t));
-        let other_threshold_diff = other
-            .threshold_date()
-            .map(|t| today.signed_duration_since(t));
-        match (threshold_diff, other_threshold_diff) {
-            (Some(d), Some(od))
-                if d < chrono::Duration::zero() && od >= chrono::Duration::zero() =>
-            {
-                return Ordering::Less;
-            }
-            (Some(d), Some(od))
-                if d >= chrono::Duration::zero() && od < chrono::Duration::zero() =>
-            {
-                return Ordering::Greater;
-            }
-            (Some(d), None) if d < chrono::Duration::zero() => {
-                return Ordering::Less;
-            }
-            (None, Some(od)) if od < chrono::Duration::zero() => {
-                return Ordering::Greater;
-            }
-            _ => (),
-        }
-
-        // Due date
-        let due = self.due_date();
-        let other_due = other.due_date();
-        match (due, other_due) {
-            (Some(d), Some(od)) if d != od => {
-                return od.cmp(&d);
-            }
-            (Some(d), None) if d <= today => {
-                return Ordering::Greater;
-            }
-            (None, Some(od)) if od <= today => {
-                return Ordering::Less;
-            }
-            _ => (),
-        }
-
-        // Explicit priority, no priority is less urgent than 'D' priority
-        match (self.priority, other.priority) {
-            (Some(p), Some(op)) if p != op => {
-                return op.cmp(&p);
-            }
-            (Some(p), None) if p < 'D' => {
-                return Ordering::Greater;
-            }
-            (None, Some(op)) if op < 'D' => {
-                return Ordering::Less;
-            }
-            _ => (),
-        }
-
-        // Having due date is more important than not having one, if not before threshold
-        match (due, other_due) {
-            (Some(_), None) if self.is_pending(&today) => {
-                return Ordering::Greater;
-            }
-            (None, Some(_)) if other.is_pending(&today) => {
-                return Ordering::Less;
-            }
-            _ => (),
-        }
-
-        // Created date
-        if let (Some(created), Some(other_created)) = (self.created_date(), other.created_date()) {
-            return other_created.cmp(&created);
-        }
-
-        Ordering::Equal
-    }
-}
-
-impl PartialOrd for Task {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
     }
 }
 
@@ -540,7 +574,7 @@ mod tests {
     #[test]
     fn test_display_empty() {
         let task = Task::default();
-        assert_eq!(format!("{task}"), "");
+        assert_eq!(task.to_string(None, false, &[]), "");
     }
 
     #[test]
@@ -549,7 +583,7 @@ mod tests {
             text: "task text".to_string(),
             ..Task::default()
         };
-        assert_eq!(format!("{task}"), "task text");
+        assert_eq!(task.to_string(None, false, &[]), "task text");
     }
 
     #[test]
@@ -559,7 +593,7 @@ mod tests {
             priority: Some('C'),
             ..Task::default()
         };
-        assert_eq!(format!("{task}"), "(C) task text");
+        assert_eq!(task.to_string(None, false, &[]), "(C) task text");
     }
 
     #[test]
@@ -571,7 +605,7 @@ mod tests {
             },
             ..Task::default()
         };
-        assert_eq!(format!("{task}"), "2023-08-20 task text");
+        assert_eq!(task.to_string(None, false, &[]), "2023-08-20 task text");
     }
 
     #[test]
@@ -584,7 +618,7 @@ mod tests {
             },
             ..Task::default()
         };
-        assert_eq!(format!("{task}"), "x 2023-08-21 task text");
+        assert_eq!(task.to_string(None, false, &[]), "x 2023-08-21 task text");
     }
 
     #[test]
@@ -597,7 +631,10 @@ mod tests {
             },
             ..Task::default()
         };
-        assert_eq!(format!("{task}"), "x 2023-08-21 2023-08-20 task text");
+        assert_eq!(
+            task.to_string(None, false, &[]),
+            "x 2023-08-21 2023-08-20 task text"
+        );
     }
 
     #[test]
@@ -611,7 +648,10 @@ mod tests {
             },
             ..Task::default()
         };
-        assert_eq!(format!("{task}"), "x 2023-08-21 task text pri:D");
+        assert_eq!(
+            task.to_string(None, false, &[]),
+            "x 2023-08-21 task text pri:D"
+        );
     }
 
     #[test]
@@ -629,7 +669,7 @@ mod tests {
             ..Task::default()
         };
         assert_eq!(
-            format!("{task}"),
+            task.to_string(None, false, &[]),
             "task text attr1:v1 attr2:v2 attr3:v3 attr4:v4 rec:+3d"
         );
     }
@@ -658,7 +698,10 @@ mod tests {
             ],
             ..Task::default()
         };
-        assert_eq!(format!("{task}"), "+tag1 @tag2 #tag3 +tag4 task text");
+        assert_eq!(
+            task.to_string(None, false, &[]),
+            "+tag1 @tag2 #tag3 +tag4 task text"
+        );
     }
 
     #[test]

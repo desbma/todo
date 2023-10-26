@@ -42,16 +42,20 @@ fn main() -> anyhow::Result<()> {
             let task_file = TodoFile::new(todotxt_path, done_path)?;
             let mut tasks = task_file.load_tasks()?;
             log::trace!("{tasks:#?}");
-            tasks.sort_unstable();
-            tasks.reverse();
-            for task in tasks {
-                println!("{task}");
+            let tasks2 = tasks.clone();
+            tasks.sort_by(|a, b| b.cmp(a, &tasks2));
+            for task in &tasks {
+                println!("{}", task.to_string(Some(&today), true, &tasks));
             }
         }
         cl::Action::Next { simple } => {
             let task_file = TodoFile::new(todotxt_path, done_path)?;
             let tasks = task_file.load_tasks()?;
-            if let Some(task) = tasks.iter().filter(|t| t.is_pending(&today)).max() {
+            if let Some(task) = tasks
+                .iter()
+                .filter(|t| t.is_ready(&today, &tasks))
+                .max_by(|a, b| a.cmp(b, &tasks))
+            {
                 if simple {
                     println!(
                         "{}{}",
@@ -63,7 +67,7 @@ fn main() -> anyhow::Result<()> {
                         task.text
                     );
                 } else {
-                    println!("{}", task);
+                    println!("{}", task.to_string(Some(&today), true, &tasks));
                 }
             }
         }
@@ -103,8 +107,8 @@ fn main() -> anyhow::Result<()> {
                 }
             })?;
             tasks.sort_by_key(|t| t.completed_date().or_else(|| t.created_date()));
-            for task in tasks {
-                println!("{task}");
+            for task in &tasks {
+                println!("{}", task.to_string(Some(&today), true, &tasks));
             }
         }
         cl::Action::Menu { no_watch } => {
@@ -151,11 +155,16 @@ fn main() -> anyhow::Result<()> {
                 let theme = dialoguer::theme::SimpleTheme;
                 loop {
                     let mut tasks = task_file.load_tasks()?;
-                    tasks.sort_unstable();
-                    tasks.reverse();
+                    let tasks2 = tasks.clone();
+                    tasks.sort_by(|a, b| b.cmp(a, &tasks2));
 
                     let task_selection = dialoguer::FuzzySelect::with_theme(&theme)
-                        .items(&tasks)
+                        .items(
+                            &tasks
+                                .iter()
+                                .map(|t| t.to_string(Some(&today), true, &tasks))
+                                .collect::<Vec<_>>(),
+                        )
                         .default(0)
                         .highlight_matches(false)
                         .interact_on_opt(&term)?;
