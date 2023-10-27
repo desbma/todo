@@ -293,6 +293,17 @@ impl Task {
             _ => (),
         }
 
+        // Being blocked is less urgent that not being
+        match (self.is_blocked(others), other.is_blocked(others)) {
+            (true, false) => {
+                return Ordering::Less;
+            }
+            (false, true) => {
+                return Ordering::Greater;
+            }
+            _ => (),
+        }
+
         // Due date
         let due = self.due_date();
         let other_due = other.due_date();
@@ -305,17 +316,6 @@ impl Task {
             }
             (None, Some(od)) if od <= today => {
                 return Ordering::Less;
-            }
-            _ => (),
-        }
-
-        // Being blocked is less urgent that not being
-        match (self.is_blocked(others), other.is_blocked(others)) {
-            (true, false) => {
-                return Ordering::Less;
-            }
-            (false, true) => {
-                return Ordering::Greater;
             }
             _ => (),
         }
