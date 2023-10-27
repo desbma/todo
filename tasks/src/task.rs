@@ -155,6 +155,10 @@ impl Task {
             .and_then(|d| Date::parse_from_str(d, DATE_FORMAT).ok())
     }
 
+    pub fn is_overdue(&self, today: &Date) -> bool {
+        self.due_date().map(|d| d <= *today).unwrap_or(false)
+    }
+
     pub fn created_date(&self) -> Option<Date> {
         match self.status {
             CreationCompletion::Pending { created } => created,
@@ -364,9 +368,7 @@ impl Task {
         let (base_style, overdue, single_global_style) = if let Some(style_ctx) = style_ctx {
             (
                 console::Style::new().for_stdout(),
-                self.due_date()
-                    .map(|d| d <= *style_ctx.today)
-                    .unwrap_or(false),
+                self.is_overdue(style_ctx.today),
                 !self.is_ready(style_ctx.today, style_ctx.other_tasks),
             )
         } else {
@@ -459,7 +461,11 @@ impl Task {
                     .apply_to(line)
                     .to_string();
             } else if self.is_blocked(style_ctx.other_tasks) {
-                line = base_style.clone().italic().apply_to(line).to_string();
+                let mut style = base_style.clone().italic();
+                if overdue {
+                    style = style.magenta();
+                }
+                line = style.apply_to(line).to_string();
             } else if !self.is_pending(style_ctx.today) {
                 line = base_style.clone().dim().apply_to(line).to_string();
             }
