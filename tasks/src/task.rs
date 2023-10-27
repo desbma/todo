@@ -140,9 +140,11 @@ impl Task {
     }
 
     fn depends_on(&self) -> Vec<&str> {
-        self.attribute("dep")
-            .map(|d| d.split(',').collect())
-            .unwrap_or_default()
+        self.attributes
+            .iter()
+            .filter(|a| a.0 == "dep")
+            .flat_map(|a| a.1.split(','))
+            .collect::<Vec<_>>()
     }
 
     pub fn threshold_date(&self) -> Option<Date> {
