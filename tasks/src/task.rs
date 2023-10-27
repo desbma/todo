@@ -101,6 +101,11 @@ impl FromStr for Recurrence {
     }
 }
 
+pub struct StyleContext<'a> {
+    pub today: &'a Date,
+    pub other_tasks: &'a [Task],
+}
+
 impl Task {
     /// Is task not completed and before threshold?
     pub fn is_pending(&self, today: &Date) -> bool {
@@ -353,22 +358,19 @@ impl Task {
         Ordering::Equal
     }
 
-    pub fn to_string(&self, today: Option<&Date>, style: bool, others: &[Task]) -> String {
+    pub fn to_string(&self, style_ctx: Option<&StyleContext>) -> String {
         let mut segments = Vec::new();
 
-        let base_style = if style {
-            console::Style::new().for_stdout()
-        } else {
-            console::Style::new().force_styling(false)
-        };
-
-        let (overdue, single_global_style) = if let Some(today) = today {
+        let (base_style, overdue, single_global_style) = if let Some(style_ctx) = style_ctx {
             (
-                self.due_date().map(|d| d <= *today).unwrap_or(false),
-                !self.is_ready(today, others),
+                console::Style::new().for_stdout(),
+                self.due_date()
+                    .map(|d| d <= *style_ctx.today)
+                    .unwrap_or(false),
+                !self.is_ready(style_ctx.today, style_ctx.other_tasks),
             )
         } else {
-            (false, false)
+            (console::Style::new().force_styling(false), false, false)
         };
 
         match self.status {
@@ -383,8 +385,8 @@ impl Task {
                     segments.push(priority_style.apply_to(format!("({priority})")).to_string());
                 }
                 if let Some(created) = created {
-                    let created_style = if let Some(today) = today {
-                        match today.signed_duration_since(created).num_days() {
+                    let created_style = if let Some(style_ctx) = style_ctx {
+                        match style_ctx.today.signed_duration_since(created).num_days() {
                             d if (0..=7).contains(&d) && !single_global_style => {
                                 base_style.clone().dim()
                             }
@@ -448,17 +450,17 @@ impl Task {
 
         // Merge & color whole line
         let mut line = segments.join(" ");
-        if matches!(self.status, CreationCompletion::Completed { .. }) {
-            line = base_style
-                .clone()
-                .dim()
-                .strikethrough()
-                .apply_to(line)
-                .to_string();
-        } else if self.is_blocked(others) {
-            line = base_style.clone().italic().apply_to(line).to_string();
-        } else if let Some(today) = today {
-            if !self.is_pending(today) {
+        if let Some(style_ctx) = style_ctx {
+            if matches!(self.status, CreationCompletion::Completed { .. }) {
+                line = base_style
+                    .clone()
+                    .dim()
+                    .strikethrough()
+                    .apply_to(line)
+                    .to_string();
+            } else if self.is_blocked(style_ctx.other_tasks) {
+                line = base_style.clone().italic().apply_to(line).to_string();
+            } else if !self.is_pending(style_ctx.today) {
                 line = base_style.clone().dim().apply_to(line).to_string();
             }
         }
@@ -574,7 +576,7 @@ mod tests {
     #[test]
     fn test_display_empty() {
         let task = Task::default();
-        assert_eq!(task.to_string(None, false, &[]), "");
+        assert_eq!(task.to_string(None), "");
     }
 
     #[test]
@@ -583,7 +585,7 @@ mod tests {
             text: "task text".to_string(),
             ..Task::default()
         };
-        assert_eq!(task.to_string(None, false, &[]), "task text");
+        assert_eq!(task.to_string(None), "task text");
     }
 
     #[test]
@@ -593,7 +595,7 @@ mod tests {
             priority: Some('C'),
             ..Task::default()
         };
-        assert_eq!(task.to_string(None, false, &[]), "(C) task text");
+        assert_eq!(task.to_string(None), "(C) task text");
     }
 
     #[test]
@@ -605,7 +607,7 @@ mod tests {
             },
             ..Task::default()
         };
-        assert_eq!(task.to_string(None, false, &[]), "2023-08-20 task text");
+        assert_eq!(task.to_string(None), "2023-08-20 task text");
     }
 
     #[test]
@@ -618,7 +620,7 @@ mod tests {
             },
             ..Task::default()
         };
-        assert_eq!(task.to_string(None, false, &[]), "x 2023-08-21 task text");
+        assert_eq!(task.to_string(None), "x 2023-08-21 task text");
     }
 
     #[test]
@@ -631,10 +633,7 @@ mod tests {
             },
             ..Task::default()
         };
-        assert_eq!(
-            task.to_string(None, false, &[]),
-            "x 2023-08-21 2023-08-20 task text"
-        );
+        assert_eq!(task.to_string(None), "x 2023-08-21 2023-08-20 task text");
     }
 
     #[test]
@@ -648,10 +647,7 @@ mod tests {
             },
             ..Task::default()
         };
-        assert_eq!(
-            task.to_string(None, false, &[]),
-            "x 2023-08-21 task text pri:D"
-        );
+        assert_eq!(task.to_string(None), "x 2023-08-21 task text pri:D");
     }
 
     #[test]
@@ -669,7 +665,7 @@ mod tests {
             ..Task::default()
         };
         assert_eq!(
-            task.to_string(None, false, &[]),
+            task.to_string(None),
             "task text attr1:v1 attr2:v2 attr3:v3 attr4:v4 rec:+3d"
         );
     }
@@ -698,10 +694,7 @@ mod tests {
             ],
             ..Task::default()
         };
-        assert_eq!(
-            task.to_string(None, false, &[]),
-            "+tag1 @tag2 #tag3 +tag4 task text"
-        );
+        assert_eq!(task.to_string(None), "+tag1 @tag2 #tag3 +tag4 task text");
     }
 
     #[test]

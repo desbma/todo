@@ -420,7 +420,7 @@ impl TodoFile {
     where
         W: Write,
     {
-        writeln!(writer, "{}", task.to_string(None, false, &[]))
+        writeln!(writer, "{}", task.to_string(None))
     }
 
     pub fn filter_all<F>(&self, f: F) -> anyhow::Result<Vec<Task>>

@@ -10,7 +10,7 @@ use wait_timeout::ChildExt;
 
 mod cl;
 
-use tasks::{CreationCompletion, Date, TodoFile};
+use tasks::{CreationCompletion, Date, StyleContext, TodoFile};
 
 fn today() -> Date {
     chrono::Local::now().date_naive()
@@ -45,7 +45,13 @@ fn main() -> anyhow::Result<()> {
             let tasks2 = tasks.clone();
             tasks.sort_by(|a, b| b.cmp(a, &tasks2));
             for task in &tasks {
-                println!("{}", task.to_string(Some(&today), true, &tasks));
+                println!(
+                    "{}",
+                    task.to_string(Some(&StyleContext {
+                        today: &today,
+                        other_tasks: &tasks
+                    }))
+                );
             }
         }
         cl::Action::Next { simple } => {
@@ -67,7 +73,13 @@ fn main() -> anyhow::Result<()> {
                         task.text
                     );
                 } else {
-                    println!("{}", task.to_string(Some(&today), true, &tasks));
+                    println!(
+                        "{}",
+                        task.to_string(Some(&StyleContext {
+                            today: &today,
+                            other_tasks: &tasks
+                        }))
+                    );
                 }
             }
         }
@@ -107,8 +119,12 @@ fn main() -> anyhow::Result<()> {
                 }
             })?;
             tasks.sort_by_key(|t| t.completed_date().or_else(|| t.created_date()));
+            let style_ctx = StyleContext {
+                today: &today,
+                other_tasks: &tasks,
+            };
             for task in &tasks {
-                println!("{}", task.to_string(Some(&today), true, &tasks));
+                println!("{}", task.to_string(Some(&style_ctx)));
             }
         }
         cl::Action::Menu { no_watch } => {
@@ -158,11 +174,15 @@ fn main() -> anyhow::Result<()> {
                     let tasks2 = tasks.clone();
                     tasks.sort_by(|a, b| b.cmp(a, &tasks2));
 
+                    let style_ctx = StyleContext {
+                        today: &today,
+                        other_tasks: &tasks,
+                    };
                     let task_selection = dialoguer::FuzzySelect::with_theme(&theme)
                         .items(
                             &tasks
                                 .iter()
-                                .map(|t| t.to_string(Some(&today), true, &tasks))
+                                .map(|t| t.to_string(Some(&style_ctx)))
                                 .collect::<Vec<_>>(),
                         )
                         .default(0)
