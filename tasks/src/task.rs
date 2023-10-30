@@ -199,12 +199,15 @@ impl Task {
             // Update attributes
             let mut attributes = self.attributes.clone();
             if let Some(due) = self.due_date() {
+                // Update due
                 let ref_ = match r.reference {
                     RecurrenceReference::Task => due,
                     RecurrenceReference::Completed => *today,
                 };
                 attributes.iter_mut().find(|a| a.0 == "due").unwrap().1 =
                     (ref_ + r.delta).format(DATE_FORMAT).to_string();
+
+                // Update threshold
                 if let Some(a) = attributes.iter_mut().find(|a| a.0 == "t") {
                     let threshold = self.threshold_date().unwrap();
                     // New threshold is new due date - delta betwwen old due and threshold
@@ -213,6 +216,7 @@ impl Task {
                         .to_string();
                 }
             } else if let Some(threshold) = self.threshold_date() {
+                // Update threshold
                 let ref_ = match r.reference {
                     RecurrenceReference::Task => threshold,
                     RecurrenceReference::Completed => *today,
@@ -222,6 +226,9 @@ impl Task {
             } else {
                 return None;
             }
+
+            // Remove started
+            attributes.retain(|a| a.0 != "started");
 
             // Update status
             let status = CreationCompletion::Pending {
@@ -908,6 +915,31 @@ mod tests {
             text: "task text".to_string(),
             status: CreationCompletion::Pending { created: None },
             attributes: vec![
+                ("due".to_string(), "2023-09-10".to_string()),
+                ("rec".to_string(), "+1w".to_string()),
+                ("started".to_string(), "2023-09-08".to_string()),
+            ],
+            ..Task::default()
+        };
+        assert_eq!(
+            task.recur(&today),
+            Some(Task {
+                text: "task text".to_string(),
+                status: CreationCompletion::Pending {
+                    created: Some(today)
+                },
+                attributes: vec![
+                    ("due".to_string(), "2023-09-17".to_string()),
+                    ("rec".to_string(), "+1w".to_string()),
+                ],
+                ..Task::default()
+            })
+        );
+
+        let task = Task {
+            text: "task text".to_string(),
+            status: CreationCompletion::Pending { created: None },
+            attributes: vec![
                 ("t".to_string(), "2023-09-08".to_string()),
                 ("due".to_string(), "2023-09-10".to_string()),
                 ("rec".to_string(), "+1w".to_string()),
@@ -1025,6 +1057,29 @@ mod tests {
             attributes: vec![
                 ("t".to_string(), "2023-09-16".to_string()),
                 ("rec".to_string(), "1w".to_string()),
+            ],
+            ..Task::default()
+        }));
+
+        assert!(Task {
+            text: "task text".to_string(),
+            status: CreationCompletion::Pending { created: None },
+            attributes: vec![
+                ("t".to_string(), "2023-09-15".to_string()),
+                ("rec".to_string(), "+1w".to_string()),
+            ],
+            ..Task::default()
+        }
+        .is_same_recurring(&Task {
+            text: "task text".to_string(),
+            status: CreationCompletion::Completed {
+                completed: today(),
+                created: None
+            },
+            attributes: vec![
+                ("t".to_string(), "2023-09-16".to_string()),
+                ("rec".to_string(), "1w".to_string()),
+                ("started".to_string(), "2023-09-18".to_string())
             ],
             ..Task::default()
         }));
