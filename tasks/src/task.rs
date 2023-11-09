@@ -157,6 +157,11 @@ impl Task {
             .and_then(|d| Date::parse_from_str(d, DATE_FORMAT).ok())
     }
 
+    pub fn started_date(&self) -> Option<Date> {
+        self.attribute("started")
+            .and_then(|d| Date::parse_from_str(d, DATE_FORMAT).ok())
+    }
+
     pub fn is_overdue(&self, today: &Date) -> bool {
         self.due_date().map(|d| d <= *today).unwrap_or(false)
     }
@@ -359,6 +364,21 @@ impl Task {
             }
             (None, Some(_)) if other.is_pending(&today) => {
                 return Ordering::Less;
+            }
+            _ => (),
+        }
+
+        // Started tasks are more important than not started
+        match (self.started_date(), other.started_date()) {
+            (Some(_), None) => {
+                return Ordering::Greater;
+            }
+            (None, Some(_)) => {
+                return Ordering::Less;
+            }
+            (Some(s), Some(o)) if s != o => {
+                // Started first are more important
+                return o.cmp(&s);
             }
             _ => (),
         }
