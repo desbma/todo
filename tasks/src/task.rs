@@ -327,17 +327,19 @@ impl Task {
             _ => (),
         }
 
-        // Due date
+        // Overdue
         let due = self.due_date();
         let other_due = other.due_date();
         match (due, other_due) {
-            (Some(d), Some(od)) if d != od => {
+            (Some(d), Some(od))
+                if (d != od) && self.is_overdue(&today) && other.is_overdue(&today) =>
+            {
                 return od.cmp(&d);
             }
-            (Some(d), None) if d <= today => {
+            (Some(_), None) if self.is_overdue(&today) => {
                 return Ordering::Greater;
             }
-            (None, Some(od)) if od <= today => {
+            (None, Some(_)) if other.is_overdue(&today) => {
                 return Ordering::Less;
             }
             _ => (),
