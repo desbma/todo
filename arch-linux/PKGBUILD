@@ -1,7 +1,7 @@
 # Maintainer: desbma
 # shellcheck disable=SC2034,SC2148,SC2154,SC2164
 pkgname=todo
-pkgver=2023.11.16
+pkgver=2024.1.25
 pkgrel=1
 pkgdesc='Todo.txt terminal frontend'
 arch=('x86_64')
