@@ -338,19 +338,23 @@ impl Task {
         // Overdue
         let due = self.due_date();
         let other_due = other.due_date();
-        match (due, other_due) {
-            (Some(d), Some(od))
-                if (d != od) && self.is_overdue(&today) && other.is_overdue(&today) =>
-            {
+        match (
+            self.is_overdue(&today),
+            due,
+            other.is_overdue(&today),
+            other_due,
+        ) {
+            (true, Some(d), true, Some(od)) if (d != od) => {
+                // Both overdue, compare due dates
                 let cmp = od.cmp(&d);
                 log::trace!("overdue: {self:?} {cmp:?} {other:?}");
                 return cmp;
             }
-            (Some(_), None) if self.is_overdue(&today) => {
+            (true, _, false, _) => {
                 log::trace!("overdue: {self:?} > {other:?}");
                 return Ordering::Greater;
             }
-            (None, Some(_)) if other.is_overdue(&today) => {
+            (false, _, true, _) => {
                 log::trace!("overdue: {self:?} < {other:?}");
                 return Ordering::Less;
             }
