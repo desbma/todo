@@ -280,9 +280,11 @@ impl Task {
         // Completed is obviously less urgent than pending
         match (&self.status, &other.status) {
             (CreationCompletion::Completed { .. }, CreationCompletion::Pending { .. }) => {
+                log::trace!("status: {self:?} < {other:?}");
                 return Ordering::Less;
             }
             (CreationCompletion::Pending { .. }, CreationCompletion::Completed { .. }) => {
+                log::trace!("status: {self:?} > {other:?}");
                 return Ordering::Greater;
             }
             _ => (),
@@ -300,17 +302,21 @@ impl Task {
             (Some(d), Some(od))
                 if d < chrono::Duration::zero() && od >= chrono::Duration::zero() =>
             {
+                log::trace!("before threshold: {self:?} < {other:?}");
                 return Ordering::Less;
             }
             (Some(d), Some(od))
                 if d >= chrono::Duration::zero() && od < chrono::Duration::zero() =>
             {
+                log::trace!("before threshold: {self:?} > {other:?}");
                 return Ordering::Greater;
             }
             (Some(d), None) if d < chrono::Duration::zero() => {
+                log::trace!("before threshold: {self:?} < {other:?}");
                 return Ordering::Less;
             }
             (None, Some(od)) if od < chrono::Duration::zero() => {
+                log::trace!("before threshold: {self:?} > {other:?}");
                 return Ordering::Greater;
             }
             _ => (),
@@ -319,9 +325,11 @@ impl Task {
         // Being blocked is less urgent that not being
         match (self.is_blocked(others), other.is_blocked(others)) {
             (true, false) => {
+                log::trace!("blocked: {self:?} < {other:?}");
                 return Ordering::Less;
             }
             (false, true) => {
+                log::trace!("blocked: {self:?} > {other:?}");
                 return Ordering::Greater;
             }
             _ => (),
@@ -334,12 +342,16 @@ impl Task {
             (Some(d), Some(od))
                 if (d != od) && self.is_overdue(&today) && other.is_overdue(&today) =>
             {
-                return od.cmp(&d);
+                let cmp = od.cmp(&d);
+                log::trace!("overdue: {self:?} {cmp:?} {other:?}");
+                return cmp;
             }
             (Some(_), None) if self.is_overdue(&today) => {
+                log::trace!("overdue: {self:?} > {other:?}");
                 return Ordering::Greater;
             }
             (None, Some(_)) if other.is_overdue(&today) => {
+                log::trace!("overdue: {self:?} < {other:?}");
                 return Ordering::Less;
             }
             _ => (),
@@ -348,12 +360,16 @@ impl Task {
         // Explicit priority, no priority is less urgent than 'D' priority
         match (self.priority, other.priority) {
             (Some(p), Some(op)) if p != op => {
-                return op.cmp(&p);
+                let cmp = op.cmp(&p);
+                log::trace!("priority: {self:?} {cmp:?} {other:?}");
+                return cmp;
             }
             (Some(p), None) if p < 'D' => {
+                log::trace!("priority: {self:?} > {other:?}");
                 return Ordering::Greater;
             }
             (None, Some(op)) if op < 'D' => {
+                log::trace!("priority: {self:?} < {other:?}");
                 return Ordering::Less;
             }
             _ => (),
@@ -362,9 +378,11 @@ impl Task {
         // Having due date is more important than not having one, if not before threshold
         match (due, other_due) {
             (Some(_), None) if self.is_pending(&today) => {
+                log::trace!("due: {self:?} > {other:?}");
                 return Ordering::Greater;
             }
             (None, Some(_)) if other.is_pending(&today) => {
+                log::trace!("due: {self:?} < {other:?}");
                 return Ordering::Less;
             }
             _ => (),
@@ -373,21 +391,27 @@ impl Task {
         // Started tasks are more important than not started
         match (self.started_date(), other.started_date()) {
             (Some(_), None) => {
+                log::trace!("started: {self:?} > {other:?}");
                 return Ordering::Greater;
             }
             (None, Some(_)) => {
+                log::trace!("started: {self:?} < {other:?}");
                 return Ordering::Less;
             }
             (Some(s), Some(o)) if s != o => {
                 // Started first are more important
-                return o.cmp(&s);
+                let cmp = o.cmp(&s);
+                log::trace!("started: {self:?} {cmp:?} {other:?}");
+                return cmp;
             }
             _ => (),
         }
 
         // Created date
         if let (Some(created), Some(other_created)) = (self.created_date(), other.created_date()) {
-            return other_created.cmp(&created);
+            let cmp = other_created.cmp(&created);
+            log::trace!("created: {self:?} {cmp:?} {other:?}");
+            return cmp;
         }
 
         Ordering::Equal
