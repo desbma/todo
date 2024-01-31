@@ -1,7 +1,8 @@
 //! Todo.txt task
 
-use std::cmp::Ordering;
+use std::hash::{Hash, Hasher};
 use std::str::FromStr;
+use std::{cmp::Ordering, collections::hash_map::DefaultHasher};
 
 use chrono::Duration;
 use regex::{Regex, RegexBuilder};
@@ -12,7 +13,7 @@ fn today() -> Date {
     chrono::Local::now().date_naive()
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, strum::EnumString, strum::AsRefStr)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, strum::EnumString, strum::AsRefStr)]
 pub enum TagKind {
     #[strum(serialize = "+")]
     Plus,
@@ -22,13 +23,13 @@ pub enum TagKind {
     Arobase,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Tag {
     kind: TagKind,
     value: String,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum CreationCompletion {
     Pending {
         created: Option<Date>,
@@ -46,7 +47,7 @@ impl Default for CreationCompletion {
 }
 
 // See https://github.com/todotxt/todo.txt#todotxt-format-rules
-#[derive(Debug, Clone, Default, Eq, PartialEq)]
+#[derive(Debug, Clone, Default, Eq, PartialEq, Hash)]
 pub struct Task {
     pub priority: Option<char>,
     pub status: CreationCompletion,
@@ -418,7 +419,22 @@ impl Task {
             return cmp;
         }
 
-        Ordering::Equal
+        // Index
+        if self.index != other.index {
+            let cmp = other
+                .index
+                .unwrap_or(usize::MAX)
+                .cmp(&self.index.unwrap_or(usize::MAX));
+            log::trace!("index: {self:?} {cmp:?} {other:?}");
+            return cmp;
+        }
+
+        // Hash
+        let mut sh = DefaultHasher::new();
+        let mut oh = DefaultHasher::new();
+        self.hash(&mut sh);
+        other.hash(&mut oh);
+        sh.finish().cmp(&oh.finish())
     }
 
     pub fn to_string(&self, style_ctx: Option<&StyleContext>) -> String {
