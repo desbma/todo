@@ -413,10 +413,13 @@ impl Task {
         }
 
         // Created date
-        if let (Some(created), Some(other_created)) = (self.created_date(), other.created_date()) {
-            let cmp = other_created.cmp(&created);
-            log::trace!("created: {self:?} {cmp:?} {other:?}");
-            return cmp;
+        match (self.created_date(), other.created_date()) {
+            (Some(created), Some(other_created)) if created != other_created => {
+                let cmp = other_created.cmp(&created);
+                log::trace!("created: {self:?} {cmp:?} {other:?}");
+                return cmp;
+            }
+            _ => {}
         }
 
         // Index
@@ -434,7 +437,9 @@ impl Task {
         let mut oh = DefaultHasher::new();
         self.hash(&mut sh);
         other.hash(&mut oh);
-        sh.finish().cmp(&oh.finish())
+        let cmp = sh.finish().cmp(&oh.finish());
+        log::trace!("hash: {self:?} {cmp:?} {other:?}");
+        cmp
     }
 
     pub fn to_string(&self, style_ctx: Option<&StyleContext>) -> String {

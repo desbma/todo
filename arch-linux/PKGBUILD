@@ -2,7 +2,7 @@
 # shellcheck disable=SC2034,SC2148,SC2154,SC2164
 pkgname=todo
 pkgver=2024.1.31
-pkgrel=1
+pkgrel=2
 pkgdesc='Todo.txt terminal frontend'
 arch=('x86_64')
 url="https://github.com/desbma/${pkgname}"
