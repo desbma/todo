@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use clap::Parser;
+use fzf_wrapped::Fzf;
 use wait_timeout::ChildExt;
 
 mod cl;
@@ -128,7 +129,6 @@ fn main() -> anyhow::Result<()> {
             }
         }
         cl::Action::Menu { no_watch } => {
-            let term = dialoguer::console::Term::stdout();
             let task_file = TodoFile::new(todotxt_path, done_path)?;
             if !no_watch {
                 let (_watcher, event_rx) = task_file.watch()?;
@@ -158,17 +158,23 @@ fn main() -> anyhow::Result<()> {
                         }
                     }
 
-                    nix::sys::signal::kill(
-                        nix::unistd::Pid::from_raw(child.id().try_into().unwrap()),
-                        nix::sys::signal::Signal::SIGTERM,
-                    )
-                    .unwrap();
+                    // Kill fzf child, which will cleanup term and bubble up termination to child
+                    Command::new("pkill")
+                        .args(["-INT", "-P", &child.id().to_string(), "-x", "fzf"])
+                        .status()?;
                     child.wait()?;
-                    term.clear_screen()?;
                 }
             } else {
                 // Warning: console's themes do not support nesting styles
+                let term = dialoguer::console::Term::stdout();
                 let theme = dialoguer::theme::SimpleTheme;
+                let mut fzf_builder = Fzf::builder();
+                fzf_builder
+                    .ansi(true)
+                    .layout(fzf_wrapped::Layout::Reverse)
+                    .no_mouse(true)
+                    .no_scrollbar(true)
+                    .custom_args(["--no-info", "--color=gutter:-1", "--with-nth=2..", "-d#"]);
                 loop {
                     let mut tasks = task_file.load_tasks()?;
                     let tasks2 = tasks.clone();
@@ -178,16 +184,15 @@ fn main() -> anyhow::Result<()> {
                         today: &today,
                         other_tasks: &tasks,
                     };
-                    let task_selection = dialoguer::FuzzySelect::with_theme(&theme)
-                        .items(
-                            &tasks
-                                .iter()
-                                .map(|t| t.to_string(Some(&style_ctx)))
-                                .collect::<Vec<_>>(),
-                        )
-                        .default(0)
-                        .highlight_matches(false)
-                        .interact_on_opt(&term)?;
+                    let fzf = fzf_builder.build()?;
+                    let fzf_lines = &tasks
+                        .iter()
+                        .enumerate()
+                        .map(|t| format!("{}#{}", t.0, t.1.to_string(Some(&style_ctx))))
+                        .collect::<Vec<_>>();
+                    let task_selection: Option<usize> =
+                        fzf_wrapped::run_with_output(fzf, fzf_lines)
+                            .and_then(|s| s.split_once('#').and_then(|s| s.0.parse().ok()));
                     match task_selection {
                         None => break,
                         Some(task_idx) => {
