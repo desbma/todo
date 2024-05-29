@@ -1,8 +1,11 @@
 //! Todo.txt task
 
-use std::hash::{Hash, Hasher};
-use std::str::FromStr;
-use std::{cmp::Ordering, collections::hash_map::DefaultHasher};
+use std::{
+    cmp::Ordering,
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    str::FromStr,
+};
 
 use chrono::Duration;
 use regex::{Regex, RegexBuilder};

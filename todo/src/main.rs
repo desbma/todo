@@ -1,9 +1,9 @@
-use std::env;
-use std::iter;
-use std::path::Path;
-use std::process::Command;
-use std::time::Duration;
-use std::time::Instant;
+use std::{
+    env, iter,
+    path::Path,
+    process::Command,
+    time::{Duration, Instant},
+};
 
 use anyhow::Context;
 use clap::Parser;

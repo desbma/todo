@@ -1,11 +1,13 @@
 //! Todo.txt file handling
 
-use std::env;
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::mpsc;
+use std::{
+    env,
+    fs::{self, File, OpenOptions},
+    io::{self, BufRead, BufReader, BufWriter, Read, Write},
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
+    sync::mpsc,
+};
 
 use chrono::Duration;
 use lazy_static::lazy_static;
