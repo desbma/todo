@@ -4,13 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = { version = "1.0.75", default-features = false, features = ["std", "backtrace"] }
-chrono = { version = "0.4.26", default-features = false, features = ["std", "clock"] }
-console = { version = "0.15.7", default-features = false }
-lazy_static = { version = "1.4.0", default-features = false }
-log = { version = "0.4.20", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
-notify = { version = "6.1.1", default-features = false }
-regex = { version = "1.9.3", default-features = false, features = ["std", "unicode"] }
-strum = { version = "0.25.0", default-features = false, features = ["std", "derive"] }
-tempfile = { version = "3.8.0", default-features = false }
-zstd = { version = "0.13.0", default-features = false, features = ["fat-lto", "pkg-config"] }
+anyhow = { workspace = true  }
+chrono = { workspace = true }
+console = { workspace = true }
+lazy_static = { workspace = true }
+log = { workspace = true }
+notify = { workspace = true }
+regex = { workspace = true }
+strum = { workspace = true }
+tempfile = { workspace = true }
+zstd = { workspace = true }
