@@ -23,8 +23,14 @@ const TASK_ACTIONS: [&str; 3] = ["Mark as done", "Edit", "Start"];
 fn main() -> anyhow::Result<()> {
     // Init logger
     simple_logger::SimpleLogger::new()
+        .with_level(if cfg!(debug_assertions) {
+            log::LevelFilter::Debug
+        } else {
+            log::LevelFilter::Info
+        })
+        .env()
         .init()
-        .context("Failed to init logger")?;
+        .context("Failed to setup logger")?;
 
     // Parse CL args
     let todotxt_var = env::var_os("TODO_FILE");
