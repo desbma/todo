@@ -3,6 +3,7 @@ use std::iter;
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
+use std::time::Instant;
 
 use anyhow::Context;
 use clap::Parser;
@@ -140,9 +141,11 @@ fn main() -> anyhow::Result<()> {
                 loop {
                     log::debug!("Spawning child");
                     let mut child = Command::new(&child_exe).args(&child_args).spawn()?;
+                    let child_start = Instant::now();
 
-                    let mut restart_child = false;
-                    while !restart_child {
+                    const MAX_CHILD_AGE: Duration = Duration::from_secs(60 * 60);
+                    let mut has_event = false;
+                    while !has_event && Instant::now().duration_since(child_start) < MAX_CHILD_AGE {
                         // Wait a bit to debounce events and detect child exit
                         const CHILD_WAIT_DURATION: Duration = Duration::from_millis(500);
                         if let Some(status) = child.wait_timeout(CHILD_WAIT_DURATION)? {
@@ -154,7 +157,7 @@ fn main() -> anyhow::Result<()> {
 
                         for _ in event_rx.try_iter() {
                             log::debug!("Received watcher event");
-                            restart_child = true;
+                            has_event = true;
                         }
                     }
 
