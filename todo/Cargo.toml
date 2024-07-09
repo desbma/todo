@@ -1,5 +1,6 @@
 [package]
 name = "todo"
+description = "todo.txt terminal frontend"
 version = "0.1.0"
 edition = "2021"
 
