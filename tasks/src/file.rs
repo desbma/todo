@@ -448,11 +448,11 @@ impl TodoFile {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use std::io::Write;
 
     use tempfile::NamedTempFile;
+
+    use super::*;
 
     fn todotxtfiles(lines: &[&str]) -> (NamedTempFile, NamedTempFile) {
         let mut todo_file = NamedTempFile::new().unwrap();
