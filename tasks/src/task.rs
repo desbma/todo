@@ -415,6 +415,17 @@ impl Task {
             _ => (),
         }
 
+        // Due date
+        match (due, other_due) {
+            (Some(d), Some(od)) if d != od => {
+                // Due first are more important
+                let cmp = od.cmp(&d);
+                log::trace!("due: {self:?} {cmp:?} {other:?}");
+                return cmp;
+            }
+            _ => (),
+        }
+
         // Created date
         match (self.created_date(), other.created_date()) {
             (Some(created), Some(other_created)) if created != other_created => {
