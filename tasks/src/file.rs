@@ -16,6 +16,7 @@ use notify::Watcher;
 use crate::task::{CreationCompletion, Date, Task};
 
 #[derive(Debug, Eq, PartialEq)]
+#[allow(clippy::module_name_repetitions)]
 pub struct TodoFile {
     todo_path: PathBuf,
     done_path: PathBuf,
@@ -42,7 +43,7 @@ impl TodoFile {
         let reader = BufReader::new(file);
         reader
             .lines()
-            .flat_map(|l| l.map(|l| l.parse()))
+            .flat_map(|r| r.map(|l| l.parse()))
             .enumerate()
             .map(|(i, r)| {
                 r.map(|mut t: Task| {
@@ -67,13 +68,14 @@ impl TodoFile {
         self.backup()?;
 
         // Overwrite task file
+        #[allow(clippy::shadow_unrelated)]
         let new_todo_file = new_todo_file_writer.into_inner()?;
         new_todo_file.persist(&self.todo_path)?;
 
         Ok(())
     }
 
-    pub fn watch(&self) -> anyhow::Result<(Box<dyn notify::Watcher>, mpsc::Receiver<()>)> {
+    pub fn watch(&self) -> anyhow::Result<(Box<dyn Watcher>, mpsc::Receiver<()>)> {
         let (event_tx, event_rx) = mpsc::channel();
         let todo_path = self.todo_path.clone();
         let mut watcher = Box::new(notify::recommended_watcher(
@@ -100,11 +102,11 @@ impl TodoFile {
         Ok((watcher, event_rx))
     }
 
-    pub fn add_task(&self, mut new_task: Task, today: &Date) -> anyhow::Result<()> {
+    pub fn add_task(&self, mut new_task: Task, today: Date) -> anyhow::Result<()> {
         // Set task created date if needed
         if let CreationCompletion::Pending { created: None } = new_task.status {
             new_task.status = CreationCompletion::Pending {
-                created: Some(*today),
+                created: Some(today),
             };
         }
 
@@ -142,20 +144,20 @@ impl TodoFile {
         Ok(())
     }
 
-    pub fn start(&self, task: &Task, today: &Date) -> anyhow::Result<()> {
+    pub fn start(&self, task: &Task, today: Date) -> anyhow::Result<()> {
         // Create new file
         let new_todo_file = tempfile::NamedTempFile::new_in(self.todo_path.parent().unwrap())?;
         let mut new_todo_file_writer = BufWriter::new(new_todo_file);
 
         // Auto recur
         let mut tasks = self.load_tasks()?;
-        self.auto_recur(&mut tasks)?;
+        Self::auto_recur(&mut tasks);
 
         // Auto archive
         self.auto_archive(&mut tasks, today)?;
 
         // Write tasks to it
-        for mut cur_task in tasks.into_iter() {
+        for mut cur_task in tasks {
             if cur_task == *task {
                 cur_task.start(today);
             }
@@ -166,20 +168,21 @@ impl TodoFile {
         self.backup()?;
 
         // Overwrite task file
+        #[allow(clippy::shadow_unrelated)]
         let new_todo_file = new_todo_file_writer.into_inner()?;
         new_todo_file.persist(&self.todo_path)?;
 
         Ok(())
     }
 
-    pub fn set_done(&self, mut task: Task, today: &Date) -> anyhow::Result<()> {
+    pub fn set_done(&self, mut task: Task, today: Date) -> anyhow::Result<()> {
         // Create new file
         let new_todo_file = tempfile::NamedTempFile::new_in(self.todo_path.parent().unwrap())?;
         let mut new_todo_file_writer = BufWriter::new(new_todo_file);
 
         // Auto recur
         let mut tasks = self.load_tasks()?;
-        self.auto_recur(&mut tasks)?;
+        Self::auto_recur(&mut tasks);
 
         // Auto archive
         self.auto_archive(&mut tasks, today)?;
@@ -190,7 +193,7 @@ impl TodoFile {
         }
 
         // Set task done and write it
-        task.set_done(today);
+        task.set_done(today)?;
         Self::write_task(&mut new_todo_file_writer, &task)?;
 
         // Write new recurring task if any
@@ -202,19 +205,20 @@ impl TodoFile {
         self.backup()?;
 
         // Overwrite task file
+        #[allow(clippy::shadow_unrelated)]
         let new_todo_file = new_todo_file_writer.into_inner()?;
         new_todo_file.persist(&self.todo_path)?;
 
         Ok(())
     }
 
-    pub fn auto_archive(&self, tasks: &mut Vec<Task>, today: &Date) -> anyhow::Result<usize> {
+    pub fn auto_archive(&self, tasks: &mut Vec<Task>, today: Date) -> anyhow::Result<usize> {
         // TODO use https://doc.rust-lang.org/std/vec/struct.Vec.html#method.extract_if when stabilized
         let mut to_archive = Vec::new();
         let mut i = 0;
         while i < tasks.len() {
             if let CreationCompletion::Completed { completed, .. } = tasks[i].status {
-                if *today - completed >= *AUTO_ARCHIVE_COMPLETED_THRESHOLD {
+                if today - completed >= *AUTO_ARCHIVE_COMPLETED_THRESHOLD {
                     let task = tasks.remove(i);
                     to_archive.push(task);
                     continue;
@@ -247,7 +251,7 @@ impl TodoFile {
             // Read done lines
             let done_lines: Vec<_> = fs::read_to_string(&self.done_path)?
                 .lines()
-                .map(|l| l.to_string())
+                .map(ToString::to_string)
                 .collect();
 
             // Split done file
@@ -293,10 +297,12 @@ impl TodoFile {
             }
 
             // Overwrite compressed file
+            #[allow(clippy::shadow_unrelated)]
             let new_compressed_file = new_compressed_file_writer.into_inner()?;
             new_compressed_file.persist(&compressed_filepath)?;
 
             // Overwrite done file
+            #[allow(clippy::shadow_unrelated)]
             let new_done_file = new_done_file_writer.into_inner()?;
             new_done_file.persist(&self.done_path)?;
 
@@ -306,7 +312,7 @@ impl TodoFile {
         Ok(archived_count)
     }
 
-    pub fn auto_recur(&self, tasks: &mut Vec<Task>) -> anyhow::Result<usize> {
+    pub fn auto_recur(tasks: &mut Vec<Task>) -> usize {
         let mut new_tasks: Vec<_> = tasks
             .iter()
             .filter(|t| {
@@ -318,11 +324,10 @@ impl TodoFile {
                     })
             })
             .map(|t| {
-                let completed_date = match t.status {
-                    CreationCompletion::Completed { completed, .. } => completed,
-                    _ => unreachable!(),
+                let CreationCompletion::Completed { completed, .. } = t.status else {
+                    unreachable!()
                 };
-                t.recur(&completed_date).unwrap()
+                t.recur(completed).unwrap()
             })
             .collect();
 
@@ -332,7 +337,7 @@ impl TodoFile {
         if new_task_count > 0 {
             log::info!("Added {new_task_count} recurring task(s)");
         }
-        Ok(new_task_count)
+        new_task_count
     }
 
     pub fn backup(&self) -> anyhow::Result<()> {
@@ -392,7 +397,7 @@ impl TodoFile {
     }
 
     pub fn undo(&self) -> anyhow::Result<()> {
-        for src_idx in 1..UNDO_HISTORY_LEN + 1 {
+        for src_idx in 1..=UNDO_HISTORY_LEN {
             let src = self.backup_path(src_idx);
             if !src.is_file() {
                 break;
@@ -409,12 +414,12 @@ impl TodoFile {
     }
 
     fn same_content(path1: &Path, path2: &Path) -> anyhow::Result<bool> {
-        if path1.metadata()?.len() != path2.metadata()?.len() {
-            Ok(false)
-        } else {
+        if path1.metadata()?.len() == path2.metadata()?.len() {
             // This is not the most efficient way to compare,
             // but for files of a few KB, it does not matter
             Ok(fs::read_to_string(path1)? == fs::read_to_string(path2)?)
+        } else {
+            Ok(false)
         }
     }
 
@@ -434,7 +439,7 @@ impl TodoFile {
         let reader = BufReader::new(todo_file).chain(BufReader::new(done_file));
         let r = reader
             .lines()
-            .flat_map(|l| l.map(|l| l.parse()))
+            .flat_map(|r| r.map(|l| l.parse()))
             .filter(|r| r.as_ref().map(f).unwrap_or(true))
             .collect::<Result<_, _>>()?;
         Ok(r)
@@ -449,7 +454,7 @@ mod tests {
 
     use tempfile::NamedTempFile;
 
-    fn todotxtfiles(lines: &[&str]) -> (tempfile::NamedTempFile, tempfile::NamedTempFile) {
+    fn todotxtfiles(lines: &[&str]) -> (NamedTempFile, NamedTempFile) {
         let mut todo_file = NamedTempFile::new().unwrap();
         for line in lines {
             writeln!(todo_file, "{line}").unwrap();
@@ -480,12 +485,12 @@ mod tests {
                 .unwrap(),
             vec![
                 Task {
-                    text: "task text".to_string(),
+                    text: "task text".to_owned(),
                     index: Some(0),
                     ..Task::default()
                 },
                 Task {
-                    text: "task2 text".to_string(),
+                    text: "task2 text".to_owned(),
                     priority: Some('C'),
                     index: Some(1),
                     ..Task::default()

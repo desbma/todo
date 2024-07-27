@@ -11,7 +11,9 @@ clap = { workspace = true }
 dialoguer = { workspace = true }
 fzf-wrapped = { workspace = true }
 log = { workspace = true }
-nix = { workspace = true }
 simple_logger = { workspace = true }
 tasks = { path = "../tasks" }
 wait-timeout = { workspace = true }
+
+[lints]
+workspace = true

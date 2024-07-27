@@ -4,7 +4,7 @@ use clap::Parser;
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
-pub enum Action {
+pub(crate) enum Action {
     /// List all tasks, ordered by urgency
     List,
     /// Get most urgent task

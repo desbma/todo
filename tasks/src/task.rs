@@ -17,7 +17,7 @@ fn today() -> Date {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, strum::EnumString, strum::AsRefStr)]
-pub enum TagKind {
+pub(crate) enum TagKind {
     #[strum(serialize = "+")]
     Plus,
     #[strum(serialize = "#")]
@@ -112,16 +112,18 @@ pub struct StyleContext<'a> {
 
 impl Task {
     /// Is task not completed and before threshold?
-    pub fn is_pending(&self, today: &Date) -> bool {
+    #[must_use]
+    pub fn is_pending(&self, today: Date) -> bool {
         match self.status {
             CreationCompletion::Pending { .. } => {
-                self.threshold_date().map(|t| t <= *today).unwrap_or(true)
+                self.threshold_date().map_or(true, |t| t <= today)
             }
             CreationCompletion::Completed { .. } => false,
         }
     }
 
     /// Is task depending on another pending task?
+    #[must_use]
     fn is_blocked(&self, others: &[Task]) -> bool {
         self.depends_on().iter().any(|id| {
             others.iter().any(|t| {
@@ -132,10 +134,12 @@ impl Task {
     }
 
     /// Is task ready to be worked on?
-    pub fn is_ready(&self, today: &Date, others: &[Task]) -> bool {
+    #[must_use]
+    pub fn is_ready(&self, today: Date, others: &[Task]) -> bool {
         self.is_pending(today) && !self.is_blocked(others)
     }
 
+    #[must_use]
     fn attribute(&self, name: &str) -> Option<&str> {
         self.attributes
             .iter()
@@ -143,6 +147,7 @@ impl Task {
             .map(|a| a.1.as_str())
     }
 
+    #[must_use]
     fn depends_on(&self) -> Vec<&str> {
         self.attributes
             .iter()
@@ -151,32 +156,38 @@ impl Task {
             .collect::<Vec<_>>()
     }
 
+    #[must_use]
     pub fn threshold_date(&self) -> Option<Date> {
         self.attribute("t")
             .and_then(|t| Date::parse_from_str(t, DATE_FORMAT).ok())
     }
 
+    #[must_use]
     pub fn due_date(&self) -> Option<Date> {
         self.attribute("due")
             .and_then(|d| Date::parse_from_str(d, DATE_FORMAT).ok())
     }
 
+    #[must_use]
     pub fn started_date(&self) -> Option<Date> {
         self.attribute("started")
             .and_then(|d| Date::parse_from_str(d, DATE_FORMAT).ok())
     }
 
-    pub fn is_overdue(&self, today: &Date) -> bool {
-        self.due_date().map(|d| d <= *today).unwrap_or(false)
+    #[must_use]
+    pub fn is_overdue(&self, today: Date) -> bool {
+        self.due_date().is_some_and(|d| d <= today)
     }
 
+    #[must_use]
     pub fn created_date(&self) -> Option<Date> {
         match self.status {
-            CreationCompletion::Pending { created } => created,
-            CreationCompletion::Completed { created, .. } => created,
+            CreationCompletion::Completed { created, .. }
+            | CreationCompletion::Pending { created } => created,
         }
     }
 
+    #[must_use]
     pub fn completed_date(&self) -> Option<Date> {
         match self.status {
             CreationCompletion::Pending { .. } => None,
@@ -184,6 +195,7 @@ impl Task {
         }
     }
 
+    #[must_use]
     pub fn recurrence(&self) -> Option<Recurrence> {
         self.attributes
             .iter()
@@ -191,19 +203,21 @@ impl Task {
             .and_then(|v| v.1.parse().ok())
     }
 
-    pub fn set_done(&mut self, today: &Date) {
+    pub fn set_done(&mut self, today: Date) -> anyhow::Result<()> {
         match self.status {
             CreationCompletion::Pending { created } => {
                 self.status = CreationCompletion::Completed {
                     created,
-                    completed: *today,
+                    completed: today,
                 };
             }
-            CreationCompletion::Completed { .. } => panic!("Aleady completed"),
+            CreationCompletion::Completed { .. } => anyhow::bail!("Aleady completed"),
         }
+        Ok(())
     }
 
-    pub fn recur(&self, today: &Date) -> Option<Self> {
+    #[must_use]
+    pub fn recur(&self, today: Date) -> Option<Self> {
         self.recurrence().and_then(|r| {
             // Update attributes
             let mut attributes = self.attributes.clone();
@@ -211,7 +225,7 @@ impl Task {
                 // Update due
                 let ref_ = match r.reference {
                     RecurrenceReference::Task => due,
-                    RecurrenceReference::Completed => *today,
+                    RecurrenceReference::Completed => today,
                 };
                 attributes.iter_mut().find(|a| a.0 == "due").unwrap().1 =
                     (ref_ + r.delta).format(DATE_FORMAT).to_string();
@@ -228,7 +242,7 @@ impl Task {
                 // Update threshold
                 let ref_ = match r.reference {
                     RecurrenceReference::Task => threshold,
-                    RecurrenceReference::Completed => *today,
+                    RecurrenceReference::Completed => today,
                 };
                 attributes.iter_mut().find(|a| a.0 == "t").unwrap().1 =
                     (ref_ + r.delta).format(DATE_FORMAT).to_string();
@@ -241,7 +255,7 @@ impl Task {
 
             // Update status
             let status = CreationCompletion::Pending {
-                created: Some(*today),
+                created: Some(today),
             };
 
             Some(Self {
@@ -254,6 +268,7 @@ impl Task {
     }
 
     /// Return true if this task is similar (same task from different recurrence)
+    #[must_use]
     pub fn is_same_recurring(&self, other: &Task) -> bool {
         // We allow difference in tags and attributes to avoid auto recurrence from
         // creating duplicates when the pending task is edited
@@ -269,17 +284,19 @@ impl Task {
     }
 
     /// Set or update started attribute
-    pub fn start(&mut self, today: &Date) {
+    pub fn start(&mut self, today: Date) {
         // Add/update started attribute
         let started_date = today.format(DATE_FORMAT).to_string();
         if let Some(started) = self.attributes.iter_mut().find(|a| a.0 == "started") {
             started.1 = started_date;
         } else {
-            self.attributes.push(("started".to_string(), started_date))
+            self.attributes.push(("started".to_owned(), started_date));
         }
     }
 
     /// Compare tasks for sorting
+    #[must_use]
+    #[allow(clippy::too_many_lines)]
     pub fn cmp(&self, other: &Self, others: &[Self]) -> Ordering {
         // Completed is obviously less urgent than pending
         match (&self.status, &other.status) {
@@ -303,23 +320,19 @@ impl Task {
             .threshold_date()
             .map(|t| today.signed_duration_since(t));
         match (threshold_diff, other_threshold_diff) {
-            (Some(d), Some(od))
-                if d < chrono::Duration::zero() && od >= chrono::Duration::zero() =>
-            {
+            (Some(d), Some(od)) if d < Duration::zero() && od >= Duration::zero() => {
                 log::trace!("before threshold: {self:?} < {other:?}");
                 return Ordering::Less;
             }
-            (Some(d), Some(od))
-                if d >= chrono::Duration::zero() && od < chrono::Duration::zero() =>
-            {
+            (Some(d), Some(od)) if d >= Duration::zero() && od < Duration::zero() => {
                 log::trace!("before threshold: {self:?} > {other:?}");
                 return Ordering::Greater;
             }
-            (Some(d), None) if d < chrono::Duration::zero() => {
+            (Some(d), None) if d < Duration::zero() => {
                 log::trace!("before threshold: {self:?} < {other:?}");
                 return Ordering::Less;
             }
-            (None, Some(od)) if od < chrono::Duration::zero() => {
+            (None, Some(od)) if od < Duration::zero() => {
                 log::trace!("before threshold: {self:?} > {other:?}");
                 return Ordering::Greater;
             }
@@ -343,9 +356,9 @@ impl Task {
         let due = self.due_date();
         let other_due = other.due_date();
         match (
-            self.is_overdue(&today),
+            self.is_overdue(today),
             due,
-            other.is_overdue(&today),
+            other.is_overdue(today),
             other_due,
         ) {
             (true, Some(d), true, Some(od)) if (d != od) => {
@@ -385,11 +398,11 @@ impl Task {
 
         // Having due date is more important than not having one, if not before threshold
         match (due, other_due) {
-            (Some(_), None) if self.is_pending(&today) => {
+            (Some(_), None) if self.is_pending(today) => {
                 log::trace!("due: {self:?} > {other:?}");
                 return Ordering::Greater;
             }
-            (None, Some(_)) if other.is_pending(&today) => {
+            (None, Some(_)) if other.is_pending(today) => {
                 log::trace!("due: {self:?} < {other:?}");
                 return Ordering::Less;
             }
@@ -456,14 +469,15 @@ impl Task {
         cmp
     }
 
+    #[must_use]
     pub fn to_string(&self, style_ctx: Option<&StyleContext>) -> String {
         let mut segments = Vec::new();
 
         let (base_style, overdue, single_global_style) = if let Some(style_ctx) = style_ctx {
             (
                 console::Style::new().for_stdout(),
-                self.is_overdue(style_ctx.today),
-                !self.is_ready(style_ctx.today, style_ctx.other_tasks),
+                self.is_overdue(*style_ctx.today),
+                !self.is_ready(*style_ctx.today, style_ctx.other_tasks),
             )
         } else {
             (console::Style::new().force_styling(false), false, false)
@@ -533,7 +547,7 @@ impl Task {
             };
             segments.push(
                 attribute_style
-                    .apply_to(format!("{}:{}", attribute_key, attribute_value))
+                    .apply_to(format!("{attribute_key}:{attribute_value}"))
                     .to_string(),
             );
         }
@@ -560,7 +574,7 @@ impl Task {
                     style = style.magenta();
                 }
                 line = style.apply_to(line).to_string();
-            } else if !self.is_pending(style_ctx.today) {
+            } else if !self.is_pending(*style_ctx.today) {
                 line = base_style.clone().dim().apply_to(line).to_string();
             }
         }
@@ -593,8 +607,8 @@ $
 
 /// Parse task from line
 /// Last time I checked, existing parsers were not a good fit:
-/// - todotxt (https://crates.io/crates/todotxt) is extremely buggy (not usable even for trivial stuff)
-/// - todo_lib (https://crates.io/crates/todo_lib) does not separate task text from the rest
+/// - `todotxt` (<https://crates.io/crates/todotxt>) is extremely buggy (not usable even for trivial stuff)
+/// - `todo_lib` (<https://crates.io/crates/todo_lib>) does not separate task text from the rest
 ///
 /// So roll our own using the regex crate, and unit tests to cover most cases
 /// Note on error handling: we can unwrap (panic) if a regex result expectation is broken, but never if the error can be
@@ -611,7 +625,7 @@ impl FromStr for Task {
             .name("text")
             .map(|m| m.as_str())
             .unwrap_or_default()
-            .to_string();
+            .to_owned();
 
         let mut priority = caps
             .name("priority")
@@ -624,22 +638,23 @@ impl FromStr for Task {
             if (key == "pri") && priority.is_none() {
                 priority = Some(val.chars().next().unwrap());
             } else {
-                attributes.push((key.to_string(), val.to_string()));
+                attributes.push((key.to_owned(), val.to_owned()));
             }
             text.replace_range(attribute_match.range(), "");
-            text = text.trim().to_string();
+            text = text.trim().to_owned();
         }
 
         let mut tags = Vec::new();
+        #[allow(clippy::string_slice)] // if the regex succeeds, we know the first char is ascii
         while let Some(tag_match) = TAG_REGEX.find_iter(&text).next() {
             let tag_str = tag_match.as_str().trim_start();
             let kind = tag_str[0..1].parse().unwrap();
             tags.push(Tag {
                 kind,
-                value: tag_str[1..tag_str.len()].to_string(),
+                value: tag_str[1..tag_str.len()].to_owned(),
             });
             text.replace_range(tag_match.range(), "");
-            text = text.trim().to_string();
+            text = text.trim().to_owned();
         }
 
         let status = if let Some(completed) = caps.name("completed") {
@@ -671,6 +686,7 @@ impl FromStr for Task {
 }
 
 #[cfg(test)]
+#[allow(clippy::too_many_lines, clippy::shadow_unrelated)]
 mod tests {
     use super::*;
 
@@ -683,7 +699,7 @@ mod tests {
     #[test]
     fn test_display_simple() {
         let task = Task {
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
             ..Task::default()
         };
         assert_eq!(task.to_string(None), "task text");
@@ -692,7 +708,7 @@ mod tests {
     #[test]
     fn test_display_prio() {
         let task = Task {
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
             priority: Some('C'),
             ..Task::default()
         };
@@ -702,7 +718,7 @@ mod tests {
     #[test]
     fn test_display_created_date() {
         let task = Task {
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
             status: CreationCompletion::Pending {
                 created: Some(Date::from_ymd_opt(2023, 8, 20).unwrap()),
             },
@@ -714,7 +730,7 @@ mod tests {
     #[test]
     fn test_display_completed() {
         let task = Task {
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
             status: CreationCompletion::Completed {
                 created: None,
                 completed: Date::from_ymd_opt(2023, 8, 21).unwrap(),
@@ -727,7 +743,7 @@ mod tests {
     #[test]
     fn test_display_completed_created_date() {
         let task = Task {
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
             status: CreationCompletion::Completed {
                 created: Some(Date::from_ymd_opt(2023, 8, 20).unwrap()),
                 completed: Date::from_ymd_opt(2023, 8, 21).unwrap(),
@@ -741,7 +757,7 @@ mod tests {
     fn test_display_completed_priority() {
         let task = Task {
             priority: Some('D'),
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
             status: CreationCompletion::Completed {
                 created: None,
                 completed: Date::from_ymd_opt(2023, 8, 21).unwrap(),
@@ -754,14 +770,14 @@ mod tests {
     #[test]
     fn test_display_attributes() {
         let task = Task {
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
 
             attributes: vec![
-                ("attr1".to_string(), "v1".to_string()),
-                ("attr2".to_string(), "v2".to_string()),
-                ("attr3".to_string(), "v3".to_string()),
-                ("attr4".to_string(), "v4".to_string()),
-                ("rec".to_string(), "+3d".to_string()),
+                ("attr1".to_owned(), "v1".to_owned()),
+                ("attr2".to_owned(), "v2".to_owned()),
+                ("attr3".to_owned(), "v3".to_owned()),
+                ("attr4".to_owned(), "v4".to_owned()),
+                ("rec".to_owned(), "+3d".to_owned()),
             ],
             ..Task::default()
         };
@@ -774,23 +790,23 @@ mod tests {
     #[test]
     fn test_display_tags() {
         let task = Task {
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
             tags: vec![
                 Tag {
                     kind: TagKind::Plus,
-                    value: "tag1".to_string(),
+                    value: "tag1".to_owned(),
                 },
                 Tag {
                     kind: TagKind::Arobase,
-                    value: "tag2".to_string(),
+                    value: "tag2".to_owned(),
                 },
                 Tag {
                     kind: TagKind::Hash,
-                    value: "tag3".to_string(),
+                    value: "tag3".to_owned(),
                 },
                 Tag {
                     kind: TagKind::Plus,
-                    value: "tag4".to_string(),
+                    value: "tag4".to_owned(),
                 },
             ],
             ..Task::default()
@@ -808,7 +824,7 @@ mod tests {
         assert_eq!(
             "task text".parse::<Task>().unwrap(),
             Task {
-                text: "task text".to_string(),
+                text: "task text".to_owned(),
                 ..Task::default()
             }
         );
@@ -819,7 +835,7 @@ mod tests {
         assert_eq!(
             "(C) task text".parse::<Task>().unwrap(),
             Task {
-                text: "task text".to_string(),
+                text: "task text".to_owned(),
                 priority: Some('C'),
                 ..Task::default()
             }
@@ -831,7 +847,7 @@ mod tests {
         assert_eq!(
             "2023-08-20 task text".parse::<Task>().unwrap(),
             Task {
-                text: "task text".to_string(),
+                text: "task text".to_owned(),
                 status: CreationCompletion::Pending {
                     created: Some(Date::from_ymd_opt(2023, 8, 20).unwrap())
                 },
@@ -845,7 +861,7 @@ mod tests {
         assert_eq!(
             "x 2023-08-21 task text".parse::<Task>().unwrap(),
             Task {
-                text: "task text".to_string(),
+                text: "task text".to_owned(),
                 status: CreationCompletion::Completed {
                     created: None,
                     completed: Date::from_ymd_opt(2023, 8, 21).unwrap()
@@ -860,7 +876,7 @@ mod tests {
         assert_eq!(
             "x 2023-08-21 2023-08-20 task text".parse::<Task>().unwrap(),
             Task {
-                text: "task text".to_string(),
+                text: "task text".to_owned(),
                 status: CreationCompletion::Completed {
                     created: Some(Date::from_ymd_opt(2023, 8, 20).unwrap()),
                     completed: Date::from_ymd_opt(2023, 8, 21).unwrap()
@@ -876,7 +892,7 @@ mod tests {
             "x 2023-08-21 task text pri:D".parse::<Task>().unwrap(),
             Task {
                 priority: Some('D'),
-                text: "task text".to_string(),
+                text: "task text".to_owned(),
                 status: CreationCompletion::Completed {
                     created: None,
 
@@ -894,13 +910,13 @@ mod tests {
                 .parse::<Task>()
                 .unwrap(),
             Task {
-                text: "task text".to_string(),
+                text: "task text".to_owned(),
                 attributes: vec![
-                    ("attr1".to_string(), "v1".to_string()),
-                    ("attr2".to_string(), "v2".to_string()),
-                    ("attr3".to_string(), "v3".to_string()),
-                    ("attr4".to_string(), "v4".to_string()),
-                    ("rec".to_string(), "+3d".to_string())
+                    ("attr1".to_owned(), "v1".to_owned()),
+                    ("attr2".to_owned(), "v2".to_owned()),
+                    ("attr3".to_owned(), "v3".to_owned()),
+                    ("attr4".to_owned(), "v4".to_owned()),
+                    ("rec".to_owned(), "+3d".to_owned())
                 ],
                 ..Task::default()
             }
@@ -912,23 +928,23 @@ mod tests {
         assert_eq!(
             "+tag1 @tag2 task text #tag3 +tag4".parse::<Task>().unwrap(),
             Task {
-                text: "task text".to_string(),
+                text: "task text".to_owned(),
                 tags: vec![
                     Tag {
                         kind: TagKind::Plus,
-                        value: "tag1".to_string()
+                        value: "tag1".to_owned()
                     },
                     Tag {
                         kind: TagKind::Arobase,
-                        value: "tag2".to_string()
+                        value: "tag2".to_owned()
                     },
                     Tag {
                         kind: TagKind::Hash,
-                        value: "tag3".to_string()
+                        value: "tag3".to_owned()
                     },
                     Tag {
                         kind: TagKind::Plus,
-                        value: "tag4".to_string()
+                        value: "tag4".to_owned()
                     }
                 ],
                 ..Task::default()
@@ -959,164 +975,164 @@ mod tests {
         let today = Date::from_ymd_opt(2023, 9, 9).unwrap();
 
         let task = Task {
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
             status: CreationCompletion::Pending { created: None },
             ..Task::default()
         };
-        assert_eq!(task.recur(&today), None);
+        assert_eq!(task.recur(today), None);
 
         let task = Task {
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
             status: CreationCompletion::Pending { created: None },
-            attributes: vec![("rec".to_string(), "+1w".to_string())],
+            attributes: vec![("rec".to_owned(), "+1w".to_owned())],
             ..Task::default()
         };
-        assert_eq!(task.recur(&today), None);
+        assert_eq!(task.recur(today), None);
 
         let task = Task {
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
             status: CreationCompletion::Pending { created: None },
             attributes: vec![
-                ("due".to_string(), "2023-09-10".to_string()),
-                ("rec".to_string(), "+1w".to_string()),
+                ("due".to_owned(), "2023-09-10".to_owned()),
+                ("rec".to_owned(), "+1w".to_owned()),
             ],
             ..Task::default()
         };
         assert_eq!(
-            task.recur(&today),
+            task.recur(today),
             Some(Task {
-                text: "task text".to_string(),
+                text: "task text".to_owned(),
                 status: CreationCompletion::Pending {
                     created: Some(today)
                 },
                 attributes: vec![
-                    ("due".to_string(), "2023-09-17".to_string()),
-                    ("rec".to_string(), "+1w".to_string()),
+                    ("due".to_owned(), "2023-09-17".to_owned()),
+                    ("rec".to_owned(), "+1w".to_owned()),
                 ],
                 ..Task::default()
             })
         );
 
         let task = Task {
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
             status: CreationCompletion::Pending { created: None },
             attributes: vec![
-                ("due".to_string(), "2023-09-10".to_string()),
-                ("rec".to_string(), "+1w".to_string()),
-                ("started".to_string(), "2023-09-08".to_string()),
+                ("due".to_owned(), "2023-09-10".to_owned()),
+                ("rec".to_owned(), "+1w".to_owned()),
+                ("started".to_owned(), "2023-09-08".to_owned()),
             ],
             ..Task::default()
         };
         assert_eq!(
-            task.recur(&today),
+            task.recur(today),
             Some(Task {
-                text: "task text".to_string(),
+                text: "task text".to_owned(),
                 status: CreationCompletion::Pending {
                     created: Some(today)
                 },
                 attributes: vec![
-                    ("due".to_string(), "2023-09-17".to_string()),
-                    ("rec".to_string(), "+1w".to_string()),
+                    ("due".to_owned(), "2023-09-17".to_owned()),
+                    ("rec".to_owned(), "+1w".to_owned()),
                 ],
                 ..Task::default()
             })
         );
 
         let task = Task {
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
             status: CreationCompletion::Pending { created: None },
             attributes: vec![
-                ("t".to_string(), "2023-09-08".to_string()),
-                ("due".to_string(), "2023-09-10".to_string()),
-                ("rec".to_string(), "+1w".to_string()),
+                ("t".to_owned(), "2023-09-08".to_owned()),
+                ("due".to_owned(), "2023-09-10".to_owned()),
+                ("rec".to_owned(), "+1w".to_owned()),
             ],
             ..Task::default()
         };
         assert_eq!(
-            task.recur(&today),
+            task.recur(today),
             Some(Task {
-                text: "task text".to_string(),
+                text: "task text".to_owned(),
                 status: CreationCompletion::Pending {
                     created: Some(today)
                 },
                 attributes: vec![
-                    ("t".to_string(), "2023-09-15".to_string()),
-                    ("due".to_string(), "2023-09-17".to_string()),
-                    ("rec".to_string(), "+1w".to_string()),
+                    ("t".to_owned(), "2023-09-15".to_owned()),
+                    ("due".to_owned(), "2023-09-17".to_owned()),
+                    ("rec".to_owned(), "+1w".to_owned()),
                 ],
                 ..Task::default()
             })
         );
 
         let task = Task {
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
             status: CreationCompletion::Pending { created: None },
             attributes: vec![
-                ("t".to_string(), "2023-09-08".to_string()),
-                ("due".to_string(), "2023-09-10".to_string()),
-                ("rec".to_string(), "1w".to_string()),
+                ("t".to_owned(), "2023-09-08".to_owned()),
+                ("due".to_owned(), "2023-09-10".to_owned()),
+                ("rec".to_owned(), "1w".to_owned()),
             ],
             ..Task::default()
         };
         assert_eq!(
-            task.recur(&today),
+            task.recur(today),
             Some(Task {
-                text: "task text".to_string(),
+                text: "task text".to_owned(),
                 status: CreationCompletion::Pending {
                     created: Some(today)
                 },
                 attributes: vec![
-                    ("t".to_string(), "2023-09-14".to_string()),
-                    ("due".to_string(), "2023-09-16".to_string()),
-                    ("rec".to_string(), "1w".to_string()),
+                    ("t".to_owned(), "2023-09-14".to_owned()),
+                    ("due".to_owned(), "2023-09-16".to_owned()),
+                    ("rec".to_owned(), "1w".to_owned()),
                 ],
                 ..Task::default()
             })
         );
 
         let task = Task {
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
             status: CreationCompletion::Pending { created: None },
             attributes: vec![
-                ("t".to_string(), "2023-09-08".to_string()),
-                ("rec".to_string(), "1w".to_string()),
+                ("t".to_owned(), "2023-09-08".to_owned()),
+                ("rec".to_owned(), "1w".to_owned()),
             ],
             ..Task::default()
         };
         assert_eq!(
-            task.recur(&today),
+            task.recur(today),
             Some(Task {
-                text: "task text".to_string(),
+                text: "task text".to_owned(),
                 status: CreationCompletion::Pending {
                     created: Some(today)
                 },
                 attributes: vec![
-                    ("t".to_string(), "2023-09-16".to_string()),
-                    ("rec".to_string(), "1w".to_string()),
+                    ("t".to_owned(), "2023-09-16".to_owned()),
+                    ("rec".to_owned(), "1w".to_owned()),
                 ],
                 ..Task::default()
             })
         );
 
         let task = Task {
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
             status: CreationCompletion::Pending { created: None },
             attributes: vec![
-                ("t".to_string(), "2023-09-08".to_string()),
-                ("rec".to_string(), "+1w".to_string()),
+                ("t".to_owned(), "2023-09-08".to_owned()),
+                ("rec".to_owned(), "+1w".to_owned()),
             ],
             ..Task::default()
         };
         assert_eq!(
-            task.recur(&today),
+            task.recur(today),
             Some(Task {
-                text: "task text".to_string(),
+                text: "task text".to_owned(),
                 status: CreationCompletion::Pending {
                     created: Some(today)
                 },
                 attributes: vec![
-                    ("t".to_string(), "2023-09-15".to_string()),
-                    ("rec".to_string(), "+1w".to_string()),
+                    ("t".to_owned(), "2023-09-15".to_owned()),
+                    ("rec".to_owned(), "+1w".to_owned()),
                 ],
                 ..Task::default()
             })
@@ -1126,87 +1142,87 @@ mod tests {
     #[test]
     fn test_is_same_recurring() {
         assert!(Task {
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
             status: CreationCompletion::Pending { created: None },
             attributes: vec![
-                ("t".to_string(), "2023-09-15".to_string()),
-                ("rec".to_string(), "+1w".to_string()),
+                ("t".to_owned(), "2023-09-15".to_owned()),
+                ("rec".to_owned(), "+1w".to_owned()),
             ],
             ..Task::default()
         }
         .is_same_recurring(&Task {
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
             status: CreationCompletion::Completed {
                 completed: today(),
                 created: None
             },
             attributes: vec![
-                ("t".to_string(), "2023-09-16".to_string()),
-                ("rec".to_string(), "1w".to_string()),
+                ("t".to_owned(), "2023-09-16".to_owned()),
+                ("rec".to_owned(), "1w".to_owned()),
             ],
             ..Task::default()
         }));
 
         assert!(Task {
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
             status: CreationCompletion::Pending { created: None },
             attributes: vec![
-                ("t".to_string(), "2023-09-15".to_string()),
-                ("rec".to_string(), "+1w".to_string()),
+                ("t".to_owned(), "2023-09-15".to_owned()),
+                ("rec".to_owned(), "+1w".to_owned()),
             ],
             ..Task::default()
         }
         .is_same_recurring(&Task {
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
             status: CreationCompletion::Completed {
                 completed: today(),
                 created: None
             },
             attributes: vec![
-                ("t".to_string(), "2023-09-16".to_string()),
-                ("rec".to_string(), "1w".to_string()),
-                ("started".to_string(), "2023-09-18".to_string())
+                ("t".to_owned(), "2023-09-16".to_owned()),
+                ("rec".to_owned(), "1w".to_owned()),
+                ("started".to_owned(), "2023-09-18".to_owned())
             ],
             ..Task::default()
         }));
 
         assert!(!Task {
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
             status: CreationCompletion::Pending { created: None },
             attributes: vec![
-                ("t".to_string(), "2023-09-15".to_string()),
-                ("rec".to_string(), "+1w".to_string()),
+                ("t".to_owned(), "2023-09-15".to_owned()),
+                ("rec".to_owned(), "+1w".to_owned()),
             ],
             ..Task::default()
         }
         .is_same_recurring(&Task {
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
             status: CreationCompletion::Completed {
                 completed: today(),
                 created: None
             },
-            attributes: vec![("t".to_string(), "2023-09-15".to_string()),],
+            attributes: vec![("t".to_owned(), "2023-09-15".to_owned()),],
             ..Task::default()
         }));
 
         assert!(!Task {
-            text: "task text".to_string(),
+            text: "task text".to_owned(),
             status: CreationCompletion::Pending { created: None },
             attributes: vec![
-                ("t".to_string(), "2023-09-15".to_string()),
-                ("rec".to_string(), "+1w".to_string()),
+                ("t".to_owned(), "2023-09-15".to_owned()),
+                ("rec".to_owned(), "+1w".to_owned()),
             ],
             ..Task::default()
         }
         .is_same_recurring(&Task {
-            text: "task text!".to_string(),
+            text: "task text!".to_owned(),
             status: CreationCompletion::Completed {
                 completed: today(),
                 created: None
             },
             attributes: vec![
-                ("t".to_string(), "2023-09-15".to_string()),
-                ("rec".to_string(), "+1w".to_string()),
+                ("t".to_owned(), "2023-09-15".to_owned()),
+                ("rec".to_owned(), "+1w".to_owned()),
             ],
             ..Task::default()
         }));

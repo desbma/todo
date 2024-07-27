@@ -20,6 +20,7 @@ fn today() -> Date {
 
 const TASK_ACTIONS: [&str; 3] = ["Mark as done", "Edit", "Start"];
 
+#[allow(clippy::too_many_lines)]
 fn main() -> anyhow::Result<()> {
     // Init logger
     simple_logger::SimpleLogger::new()
@@ -67,7 +68,7 @@ fn main() -> anyhow::Result<()> {
             let tasks = task_file.load_tasks()?;
             if let Some(task) = tasks
                 .iter()
-                .filter(|t| t.is_ready(&today, &tasks))
+                .filter(|t| t.is_ready(today, &tasks))
                 .max_by(|a, b| a.cmp(b, &tasks))
             {
                 if simple {
@@ -76,7 +77,7 @@ fn main() -> anyhow::Result<()> {
                         if let Some(priority) = task.priority {
                             format!("({priority}) ")
                         } else {
-                            "".to_string()
+                            String::new()
                         },
                         task.text
                     );
@@ -95,7 +96,7 @@ fn main() -> anyhow::Result<()> {
             let task_file = TodoFile::new(todotxt_path, done_path)?;
             let new_task = args.join(" ").parse()?;
             log::debug!("{new_task:?}");
-            task_file.add_task(new_task, &today)?;
+            task_file.add_task(new_task, today)?;
         }
         cl::Action::Undo => {
             let task_file = TodoFile::new(todotxt_path, done_path)?;
@@ -112,18 +113,18 @@ fn main() -> anyhow::Result<()> {
         cl::Action::PendingCount => {
             let task_file = TodoFile::new(todotxt_path, done_path)?;
             let tasks = task_file.load_tasks()?;
-            let pending = tasks.iter().filter(|t| t.is_pending(&today)).count();
+            let pending = tasks.iter().filter(|t| t.is_pending(today)).count();
             println!("{pending}");
         }
         cl::Action::Report { days } => {
             let task_file = TodoFile::new(todotxt_path, done_path)?;
-            let date_limit = today - chrono::Duration::days(days as i64);
+            let date_limit = today - chrono::Duration::days(i64::try_from(days)?);
             let mut tasks = task_file.filter_all(|t| match t.status {
                 CreationCompletion::Pending { created } => {
-                    created.map(|c| c >= date_limit).unwrap_or(false) && t.recurrence().is_none()
+                    created.is_some_and(|c| c >= date_limit) && t.recurrence().is_none()
                 }
                 CreationCompletion::Completed { created, completed } => {
-                    created.map(|c| c >= date_limit).unwrap_or(false) || (completed >= date_limit)
+                    created.is_some_and(|c| c >= date_limit) || (completed >= date_limit)
                 }
             })?;
             tasks.sort_by_key(|t| t.completed_date().or_else(|| t.created_date()));
@@ -137,43 +138,7 @@ fn main() -> anyhow::Result<()> {
         }
         cl::Action::Menu { no_watch } => {
             let task_file = TodoFile::new(todotxt_path, done_path)?;
-            if !no_watch {
-                let (_watcher, event_rx) = task_file.watch()?;
-                let child_exe = env::current_exe()?;
-                let child_args: Vec<_> = env::args()
-                    .skip(1)
-                    .chain(iter::once("--no-watch".to_string()))
-                    .collect();
-                loop {
-                    log::debug!("Spawning child");
-                    let mut child = Command::new(&child_exe).args(&child_args).spawn()?;
-                    let child_start = Instant::now();
-
-                    const MAX_CHILD_AGE: Duration = Duration::from_secs(60 * 60);
-                    let mut has_event = false;
-                    while !has_event && Instant::now().duration_since(child_start) < MAX_CHILD_AGE {
-                        // Wait a bit to debounce events and detect child exit
-                        const CHILD_WAIT_DURATION: Duration = Duration::from_millis(500);
-                        if let Some(status) = child.wait_timeout(CHILD_WAIT_DURATION)? {
-                            if !status.success() {
-                                log::warn!("Child exited with code {status:?}");
-                            }
-                            return Ok(());
-                        };
-
-                        for _ in event_rx.try_iter() {
-                            log::debug!("Received watcher event");
-                            has_event = true;
-                        }
-                    }
-
-                    // Kill fzf child, which will cleanup term and bubble up termination to child
-                    Command::new("pkill")
-                        .args(["-INT", "-P", &child.id().to_string(), "-x", "fzf"])
-                        .status()?;
-                    child.wait()?;
-                }
-            } else {
+            if no_watch {
                 // Warning: console's themes do not support nesting styles
                 let term = dialoguer::console::Term::stdout();
                 let theme = dialoguer::theme::SimpleTheme;
@@ -201,7 +166,7 @@ fn main() -> anyhow::Result<()> {
                         .collect::<Vec<_>>();
                     let task_selection: Option<usize> =
                         fzf_wrapped::run_with_output(fzf, fzf_lines)
-                            .and_then(|s| s.split_once('#').and_then(|s| s.0.parse().ok()));
+                            .and_then(|s| s.split_once('#').and_then(|t| t.0.parse().ok()));
                     match task_selection {
                         None => break,
                         Some(task_idx) => {
@@ -212,13 +177,13 @@ fn main() -> anyhow::Result<()> {
                                 .interact_on_opt(&term)?;
                             match action_selection {
                                 Some(0) => {
-                                    task_file.set_done(task.clone(), &today)?;
+                                    task_file.set_done(task.clone(), today)?;
                                 }
                                 Some(1) => {
                                     task_file.edit(task)?;
                                 }
                                 Some(2) => {
-                                    task_file.start(task, &today)?;
+                                    task_file.start(task, today)?;
                                 }
                                 Some(_) => unreachable!(),
                                 None => (),
@@ -227,13 +192,49 @@ fn main() -> anyhow::Result<()> {
                     }
                     term.clear_screen()?;
                 }
+            } else {
+                const MAX_CHILD_AGE: Duration = Duration::from_secs(60 * 60);
+                let (_watcher, event_rx) = task_file.watch()?;
+                let child_exe = env::current_exe()?;
+                let child_args: Vec<_> = env::args()
+                    .skip(1)
+                    .chain(iter::once("--no-watch".to_owned()))
+                    .collect();
+                loop {
+                    log::debug!("Spawning child");
+                    let mut child = Command::new(&child_exe).args(&child_args).spawn()?;
+                    let child_start = Instant::now();
+
+                    let mut has_event = false;
+                    while !has_event && Instant::now().duration_since(child_start) < MAX_CHILD_AGE {
+                        // Wait a bit to debounce events and detect child exit
+                        const CHILD_WAIT_DURATION: Duration = Duration::from_millis(500);
+                        if let Some(status) = child.wait_timeout(CHILD_WAIT_DURATION)? {
+                            if !status.success() {
+                                log::warn!("Child exited with code {status:?}");
+                            }
+                            return Ok(());
+                        };
+
+                        for () in event_rx.try_iter() {
+                            log::debug!("Received watcher event");
+                            has_event = true;
+                        }
+                    }
+
+                    // Kill fzf child, which will cleanup term and bubble up termination to child
+                    Command::new("pkill")
+                        .args(["-INT", "-P", &child.id().to_string(), "-x", "fzf"])
+                        .status()?;
+                    child.wait()?;
+                }
             }
         }
         cl::Action::Auto => {
             let task_file = TodoFile::new(todotxt_path, done_path)?;
             let mut tasks = task_file.load_tasks()?;
-            let added_count = task_file.auto_recur(&mut tasks)?;
-            let archived_count = task_file.auto_archive(&mut tasks, &today)?;
+            let added_count = TodoFile::auto_recur(&mut tasks);
+            let archived_count = task_file.auto_archive(&mut tasks, today)?;
             if (archived_count > 0) || (added_count > 0) {
                 task_file.save_tasks(tasks)?;
             }
