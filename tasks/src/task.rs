@@ -595,6 +595,7 @@ $
 /// Last time I checked, existing parsers were not a good fit:
 /// - todotxt (https://crates.io/crates/todotxt) is extremely buggy (not usable even for trivial stuff)
 /// - todo_lib (https://crates.io/crates/todo_lib) does not separate task text from the rest
+///
 /// So roll our own using the regex crate, and unit tests to cover most cases
 /// Note on error handling: we can unwrap (panic) if a regex result expectation is broken, but never if the error can be
 /// reached with invalid input line.
