@@ -10,14 +10,14 @@ anyhow = { version = "1.0.89", default-features = false, features = ["std", "bac
 chrono = { version = "0.4.38", default-features = false, features = ["std", "clock"] }
 clap = { version = "4.5.19", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
 console = { version = "0.15.8", default-features = false }
-dialoguer = { version = "0.10.4", default-features = false }
+dialoguer = { version = "0.11.0", default-features = false }
 fzf-wrapped = { version = "0.1.4", default-features = false }
 lazy_static = { version = "1.5.0", default-features = false }
 log = { version = "0.4.22", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
 notify = { version = "6.1.1", default-features = false }
 regex = { version = "1.11.0", default-features = false, features = ["std", "unicode"] }
-simple_logger = { version = "4.3.3", default-features = false, features = ["colors", "stderr"] }
-strum = { version = "0.25.0", default-features = false, features = ["std", "derive"] }
+simple_logger = { version = "5.0.0", default-features = false, features = ["colors", "stderr"] }
+strum = { version = "0.26.3", default-features = false, features = ["std", "derive"] }
 tempfile = { version = "3.13.0", default-features = false }
 wait-timeout = { version = "0.2.0", default-features = false }
 zstd = { version = "0.13.2", default-features = false, features = ["fat-lto", "pkg-config"] }
