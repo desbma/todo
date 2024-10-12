@@ -6,11 +6,10 @@ use std::{
     io::{self, BufRead, BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::mpsc,
+    sync::{mpsc, LazyLock},
 };
 
 use chrono::Duration;
-use lazy_static::lazy_static;
 use notify::Watcher;
 
 use crate::task::{CreationCompletion, Date, Task};
@@ -26,9 +25,7 @@ const UNDO_HISTORY_LEN: usize = 5;
 const DONE_FILE_TASK_COUNT_COMPRESS_THRESHOLD: usize = 2000;
 const DONE_FILE_TASK_COUNT_TARGET: usize = 1000;
 const ZSTD_COMPRESSION_LEVEL: i32 = 19;
-lazy_static! {
-    static ref AUTO_ARCHIVE_COMPLETED_THRESHOLD: Duration = Duration::days(2);
-}
+static AUTO_ARCHIVE_COMPLETED_THRESHOLD: LazyLock<Duration> = LazyLock::new(|| Duration::days(2));
 
 impl TodoFile {
     pub fn new(todo_path: &Path, done_path: &Path) -> anyhow::Result<Self> {

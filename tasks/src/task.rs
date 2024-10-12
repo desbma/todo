@@ -5,6 +5,7 @@ use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
     str::FromStr,
+    sync::LazyLock,
 };
 
 use chrono::Duration;
@@ -75,9 +76,8 @@ pub struct Recurrence {
 const DATE_FORMAT: &str = "%Y-%m-%d";
 const RECURRENCE_TAG_KEYS: [&str; 2] = ["rec", "rec2"];
 
-lazy_static::lazy_static! {
-    static ref REC_REGEX: Regex = Regex::new(r"(?<ref>\+?)(?<val>\d+)(?<unit>d|w|m|y)").unwrap();
-}
+static REC_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?<ref>\+?)(?<val>\d+)(?<unit>d|w|m|y)").unwrap());
 
 impl FromStr for Recurrence {
     type Err = anyhow::Error;
@@ -582,8 +582,9 @@ impl Task {
     }
 }
 
-lazy_static::lazy_static! {
-    static ref TASK_REGEX: Regex = RegexBuilder::new(r"
+static TASK_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    RegexBuilder::new(
+        r"
 ^
 (
     (
@@ -598,12 +599,16 @@ lazy_static::lazy_static! {
 )?
 (?<text>.*)
 $
-").ignore_whitespace(true).build().unwrap();
+",
+    )
+    .ignore_whitespace(true)
+    .build()
+    .unwrap()
+});
 
-    static ref ATTRIBUTE_REGEX: Regex = Regex::new(r" ?(\w+:[^\s]+)").unwrap();
+static ATTRIBUTE_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" ?(\w+:[^\s]+)").unwrap());
 
-    static ref TAG_REGEX: Regex = Regex::new(r" ?([+#@][^\s]+)").unwrap();
-}
+static TAG_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" ?([+#@][^\s]+)").unwrap());
 
 /// Parse task from line
 /// Last time I checked, existing parsers were not a good fit:
