@@ -128,7 +128,7 @@ impl Task {
         self.depends_on().iter().any(|id| {
             others.iter().any(|t| {
                 matches!(t.status, CreationCompletion::Pending { .. })
-                    && t.attribute("id") == Some(*id)
+                    && t.id().as_ref().is_some_and(|oid| oid == *id)
             })
         })
     }
@@ -145,6 +145,32 @@ impl Task {
             .iter()
             .find(|a| a.0 == name)
             .map(|a| a.1.as_str())
+    }
+
+    #[must_use]
+    fn id(&self) -> Option<String> {
+        self.attributes
+            .iter()
+            .find(|a| a.0 == "id")
+            .map(|a| a.1.clone())
+            .or_else(|| {
+                // Fallback to string generated from first tag's 3 first letters, and first letter of each text word
+                if let Some(first_tag) = self.tags.first().map(|t| {
+                    let mut v = t.value.to_ascii_lowercase();
+                    v.truncate(3);
+                    v
+                }) {
+                    let first_letters = self
+                        .text
+                        .split_whitespace()
+                        .filter_map(|w| w.chars().next())
+                        .map(|c| c.to_ascii_lowercase())
+                        .collect::<String>();
+                    Some(format!("{first_tag}{first_letters}"))
+                } else {
+                    None
+                }
+            })
     }
 
     #[must_use]
@@ -1231,5 +1257,24 @@ mod tests {
             ],
             ..Task::default()
         }));
+    }
+
+    #[test]
+    fn test_autogenerate_id() {
+        assert_eq!(
+            Task {
+                priority: None,
+                status: CreationCompletion::Pending { created: None },
+                tags: vec![Tag {
+                    kind: TagKind::Plus,
+                    value: "AbCdEf".to_owned()
+                }],
+                attributes: vec![],
+                text: "ghijkl MNOPQR stuVw".to_owned(),
+                index: None
+            }
+            .id(),
+            Some("abcgms".to_owned())
+        );
     }
 }
