@@ -693,7 +693,7 @@ impl FromStr for Task {
                 created: caps
                     .name("completed_created")
                     .map(|m| m.as_str().parse::<Date>())
-                    .map_or(Ok(None), |v| v.map(Some))?,
+                    .transpose()?,
                 completed: completed.as_str().parse::<Date>()?,
             }
         } else {
@@ -701,7 +701,7 @@ impl FromStr for Task {
                 created: caps
                     .name("created")
                     .map(|m| m.as_str().parse::<Date>())
-                    .map_or(Ok(None), |v| v.map(Some))?,
+                    .transpose()?,
             }
         };
 
