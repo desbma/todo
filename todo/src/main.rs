@@ -101,6 +101,7 @@ fn main() -> anyhow::Result<()> {
                 );
             }
         }
+
         cl::Action::Next { simple } => {
             let task_file = TodoFile::new(todotxt_path, done_path)?;
             let tasks = task_file.load_tasks()?;
@@ -130,12 +131,14 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         }
+
         cl::Action::Add { args } => {
             let task_file = TodoFile::new(todotxt_path, done_path)?;
             let new_task = args.join(" ").parse()?;
             log::debug!("{new_task:?}");
             task_file.add_task(new_task, today)?;
         }
+
         cl::Action::Undo => {
             let task_file = TodoFile::new(todotxt_path, done_path)?;
             task_file.undo_diff()?;
@@ -148,12 +151,14 @@ fn main() -> anyhow::Result<()> {
                 task_file.undo()?;
             }
         }
+
         cl::Action::PendingCount => {
             let task_file = TodoFile::new(todotxt_path, done_path)?;
             let tasks = task_file.load_tasks()?;
             let pending = tasks.iter().filter(|t| t.is_pending(today)).count();
             println!("{pending}");
         }
+
         cl::Action::Report { days } => {
             let task_file = TodoFile::new(todotxt_path, done_path)?;
             let date_limit = today - chrono::Duration::days(i64::try_from(days)?);
@@ -174,6 +179,7 @@ fn main() -> anyhow::Result<()> {
                 println!("{}", task.to_string(Some(&style_ctx)));
             }
         }
+
         cl::Action::Menu { no_watch } => {
             let task_file = TodoFile::new(todotxt_path, done_path)?;
             if no_watch {
@@ -187,6 +193,7 @@ fn main() -> anyhow::Result<()> {
                     .no_mouse(true)
                     .no_scrollbar(true)
                     .custom_args(["--no-info", "--color=gutter:-1", "--with-nth=2..", "-d#"]);
+
                 loop {
                     let mut tasks = task_file.load_tasks()?;
                     let tasks2 = tasks.clone();
@@ -240,6 +247,7 @@ fn main() -> anyhow::Result<()> {
                     .skip(1)
                     .chain(iter::once("--no-watch".to_owned()))
                     .collect();
+
                 while !has_exe_event {
                     log::debug!("Spawning child");
                     let mut child = Command::new(&current_exe).args(&child_args).spawn()?;
