@@ -1,13 +1,16 @@
 use std::{
     env, iter,
+    os::unix::process::CommandExt,
     path::Path,
     process::Command,
+    sync::mpsc,
     time::{Duration, Instant},
 };
 
 use anyhow::Context;
 use clap::Parser;
 use fzf_wrapped::Fzf;
+use notify::Watcher;
 use wait_timeout::ChildExt;
 
 mod cl;
@@ -19,6 +22,41 @@ fn today() -> Date {
 }
 
 const TASK_ACTIONS: [&str; 3] = ["Mark as done", "Edit", "Start"];
+
+fn watch_current_exe(exe_path: &Path) -> anyhow::Result<(Box<dyn Watcher>, mpsc::Receiver<()>)> {
+    let (event_tx, event_rx) = mpsc::channel();
+    let parent_dir = exe_path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Path {exe_path:?} has no parent"))?;
+    let exe_path = exe_path.to_owned();
+    let mut watcher = Box::new(notify::recommended_watcher(
+        move |evt: notify::Result<notify::Event>| {
+            log::debug!("Watcher event {evt:?}");
+            if let Ok(evt) = evt {
+                match evt.kind {
+                    notify::EventKind::Create(_)
+                    | notify::EventKind::Modify(_)
+                    | notify::EventKind::Remove(_) => {
+                        if evt.paths.contains(&exe_path) {
+                            let _ = event_tx.send(());
+                        }
+                    }
+                    _ => (),
+                }
+            }
+        },
+    )?);
+    watcher.watch(parent_dir, notify::RecursiveMode::NonRecursive)?;
+    Ok((watcher, event_rx))
+}
+
+/// exec current binary with same environment and args as it was started with
+fn exec_self(current_exe: &Path) -> anyhow::Result<()> {
+    let err = Command::new(current_exe)
+        .args(env::args_os().skip(1))
+        .exec();
+    Err(err.into())
+}
 
 #[allow(clippy::too_many_lines)]
 fn main() -> anyhow::Result<()> {
@@ -194,19 +232,24 @@ fn main() -> anyhow::Result<()> {
                 }
             } else {
                 const MAX_CHILD_AGE: Duration = Duration::from_secs(60 * 60);
-                let (_watcher, event_rx) = task_file.watch()?;
-                let child_exe = env::current_exe()?;
+                let (_txt_watcher, txt_event_rx) = task_file.watch()?;
+                let current_exe = env::current_exe()?;
+                let (_exe_watcher, exe_event_rx) = watch_current_exe(&current_exe)?;
+                let mut has_exe_event = false;
                 let child_args: Vec<_> = env::args()
                     .skip(1)
                     .chain(iter::once("--no-watch".to_owned()))
                     .collect();
-                loop {
+                while !has_exe_event {
                     log::debug!("Spawning child");
-                    let mut child = Command::new(&child_exe).args(&child_args).spawn()?;
+                    let mut child = Command::new(&current_exe).args(&child_args).spawn()?;
                     let child_start = Instant::now();
 
-                    let mut has_event = false;
-                    while !has_event && Instant::now().duration_since(child_start) < MAX_CHILD_AGE {
+                    let mut has_txt_event = false;
+                    while !has_txt_event
+                        && !has_exe_event
+                        && Instant::now().duration_since(child_start) < MAX_CHILD_AGE
+                    {
                         // Wait a bit to debounce events and detect child exit
                         const CHILD_WAIT_DURATION: Duration = Duration::from_millis(500);
                         if let Some(status) = child.wait_timeout(CHILD_WAIT_DURATION)? {
@@ -216,9 +259,13 @@ fn main() -> anyhow::Result<()> {
                             return Ok(());
                         };
 
-                        for () in event_rx.try_iter() {
-                            log::debug!("Received watcher event");
-                            has_event = true;
+                        for () in txt_event_rx.try_iter() {
+                            log::debug!("Received txt watcher event");
+                            has_txt_event = true;
+                        }
+                        for () in exe_event_rx.try_iter() {
+                            log::debug!("Received exe watcher event");
+                            has_exe_event = true;
                         }
                     }
 
@@ -228,6 +275,9 @@ fn main() -> anyhow::Result<()> {
                         .status()?;
                     child.wait()?;
                 }
+
+                // If we get here, restart current executable
+                exec_self(&current_exe).context("Failed to exec self")?;
             }
         }
         cl::Action::Auto => {
