@@ -2,6 +2,7 @@
 name = "todo"
 description = "todo.txt terminal frontend"
 version = "0.1.0"
+rust-version = "1.81"
 edition = "2021"
 
 [dependencies]

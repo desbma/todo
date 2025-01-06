@@ -1,17 +1,17 @@
 use std::{
     env, iter,
-    os::unix::process::CommandExt,
+    os::unix::process::CommandExt as _,
     path::Path,
     process::Command,
     sync::mpsc,
     time::{Duration, Instant},
 };
 
-use anyhow::Context;
-use clap::Parser;
+use anyhow::Context as _;
+use clap::Parser as _;
 use fzf_wrapped::Fzf;
 use notify::Watcher;
-use wait_timeout::ChildExt;
+use wait_timeout::ChildExt as _;
 
 mod cl;
 
@@ -58,7 +58,7 @@ fn exec_self(current_exe: &Path) -> anyhow::Result<()> {
     Err(err.into())
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines)]
 fn main() -> anyhow::Result<()> {
     // Init logger
     simple_logger::SimpleLogger::new()

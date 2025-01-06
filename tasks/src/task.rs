@@ -3,7 +3,7 @@
 use std::{
     cmp::Ordering,
     collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
+    hash::{Hash, Hasher as _},
     str::FromStr,
     sync::LazyLock,
 };
@@ -322,7 +322,7 @@ impl Task {
 
     /// Compare tasks for sorting
     #[must_use]
-    #[allow(clippy::too_many_lines)]
+    #[expect(clippy::too_many_lines)]
     pub fn cmp(&self, other: &Self, others: &[Self]) -> Ordering {
         // Completed is obviously less urgent than pending
         match (&self.status, &other.status) {
@@ -676,7 +676,7 @@ impl FromStr for Task {
         }
 
         let mut tags = Vec::new();
-        #[allow(clippy::string_slice)] // if the regex succeeds, we know the first char is ascii
+        #[expect(clippy::string_slice)] // if the regex succeeds, we know the first char is ascii
         while let Some(tag_match) = TAG_REGEX.find_iter(&text).next() {
             let tag_str = tag_match.as_str().trim_start();
             let kind = tag_str[0..1].parse().unwrap();
@@ -717,7 +717,7 @@ impl FromStr for Task {
 }
 
 #[cfg(test)]
-#[allow(clippy::too_many_lines, clippy::shadow_unrelated)]
+#[expect(clippy::too_many_lines, clippy::shadow_unrelated)]
 mod tests {
     use super::*;
 

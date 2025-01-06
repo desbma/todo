@@ -3,7 +3,7 @@
 use std::{
     env,
     fs::{self, File, OpenOptions},
-    io::{self, BufRead, BufReader, BufWriter, Read, Write},
+    io::{self, BufRead as _, BufReader, BufWriter, Read as _, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{mpsc, LazyLock},
@@ -15,7 +15,7 @@ use notify::Watcher;
 use crate::task::{CreationCompletion, Date, Task};
 
 #[derive(Debug, Eq, PartialEq)]
-#[allow(clippy::module_name_repetitions)]
+#[expect(clippy::module_name_repetitions)]
 pub struct TodoFile {
     todo_path: PathBuf,
     done_path: PathBuf,
@@ -65,7 +65,7 @@ impl TodoFile {
         self.backup()?;
 
         // Overwrite task file
-        #[allow(clippy::shadow_unrelated)]
+        #[expect(clippy::shadow_unrelated)]
         let new_todo_file = new_todo_file_writer.into_inner()?;
         new_todo_file.persist(&self.todo_path)?;
 
@@ -165,7 +165,7 @@ impl TodoFile {
         self.backup()?;
 
         // Overwrite task file
-        #[allow(clippy::shadow_unrelated)]
+        #[expect(clippy::shadow_unrelated)]
         let new_todo_file = new_todo_file_writer.into_inner()?;
         new_todo_file.persist(&self.todo_path)?;
 
@@ -202,7 +202,7 @@ impl TodoFile {
         self.backup()?;
 
         // Overwrite task file
-        #[allow(clippy::shadow_unrelated)]
+        #[expect(clippy::shadow_unrelated)]
         let new_todo_file = new_todo_file_writer.into_inner()?;
         new_todo_file.persist(&self.todo_path)?;
 
@@ -294,12 +294,12 @@ impl TodoFile {
             }
 
             // Overwrite compressed file
-            #[allow(clippy::shadow_unrelated)]
+            #[expect(clippy::shadow_unrelated)]
             let new_compressed_file = new_compressed_file_writer.into_inner()?;
             new_compressed_file.persist(&compressed_filepath)?;
 
             // Overwrite done file
-            #[allow(clippy::shadow_unrelated)]
+            #[expect(clippy::shadow_unrelated)]
             let new_done_file = new_done_file_writer.into_inner()?;
             new_done_file.persist(&self.done_path)?;
 
@@ -445,7 +445,7 @@ impl TodoFile {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    use std::io::Write as _;
 
     use tempfile::NamedTempFile;
 
