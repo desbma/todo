@@ -6,18 +6,18 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-anyhow = { version = "1.0.89", default-features = false, features = ["std", "backtrace"] }
-chrono = { version = "0.4.38", default-features = false, features = ["std", "clock"] }
-clap = { version = "4.5.19", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
-console = { version = "0.15.8", default-features = false }
+anyhow = { version = "1.0.95", default-features = false, features = ["std", "backtrace"] }
+chrono = { version = "0.4.39", default-features = false, features = ["std", "clock"] }
+clap = { version = "4.5.23", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
+console = { version = "0.15.10", default-features = false }
 dialoguer = { version = "0.11.0", default-features = false }
 fzf-wrapped = { version = "0.1.4", default-features = false }
 log = { version = "0.4.22", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
-notify = { version = "6.1.1", default-features = false }
-regex = { version = "1.11.0", default-features = false, features = ["std", "unicode"] }
+notify = { version = "7.0.0", default-features = false }
+regex = { version = "1.11.1", default-features = false, features = ["std", "unicode"] }
 simple_logger = { version = "5.0.0", default-features = false, features = ["colors", "stderr"] }
 strum = { version = "0.26.3", default-features = false, features = ["std", "derive"] }
-tempfile = { version = "3.13.0", default-features = false }
+tempfile = { version = "3.15.0", default-features = false }
 wait-timeout = { version = "0.2.0", default-features = false }
 zstd = { version = "0.13.2", default-features = false, features = ["fat-lto", "pkg-config"] }
 
