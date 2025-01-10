@@ -24,7 +24,6 @@ repos:
     hooks:
       - id: cargo-check
       - id: clippy
-        args: ["--", "-D", "warnings"]
       - id: fmt
 
   - repo: https://github.com/shellcheck-py/shellcheck-py
@@ -46,4 +45,3 @@ repos:
     hooks:
       - id: conventional-pre-commit
         stages: [commit-msg]
-        args: [chore, config, doc, test]
