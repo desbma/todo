@@ -87,7 +87,10 @@ impl TodoFile {
                                 let _ = event_tx.send(());
                             }
                         }
-                        _ => (),
+                        _ if evt.need_rescan() => {
+                            let _ = event_tx.send(());
+                        }
+                        _ => {}
                     }
                 }
             },

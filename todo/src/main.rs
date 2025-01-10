@@ -41,7 +41,10 @@ fn watch_current_exe(exe_path: &Path) -> anyhow::Result<(Box<dyn Watcher>, mpsc:
                             let _ = event_tx.send(());
                         }
                     }
-                    _ => (),
+                    _ if evt.need_rescan() => {
+                        let _ = event_tx.send(());
+                    }
+                    _ => {}
                 }
             }
         },
