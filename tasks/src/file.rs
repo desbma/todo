@@ -15,7 +15,6 @@ use notify::Watcher;
 use crate::task::{CreationCompletion, Date, Task};
 
 #[derive(Debug, Eq, PartialEq)]
-#[expect(clippy::module_name_repetitions)]
 pub struct TodoFile {
     todo_path: PathBuf,
     done_path: PathBuf,
