@@ -268,7 +268,7 @@ fn main() -> anyhow::Result<()> {
                                 log::warn!("Child exited with code {status:?}");
                             }
                             return Ok(());
-                        };
+                        }
 
                         for () in txt_event_rx.try_iter() {
                             log::debug!("Received txt watcher event");

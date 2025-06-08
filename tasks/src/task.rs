@@ -111,12 +111,12 @@ pub struct StyleContext<'a> {
 }
 
 impl Task {
-    /// Is task not completed and before threshold?
+    /// Is task not completed and after threshold?
     #[must_use]
     pub fn is_pending(&self, today: Date) -> bool {
         match self.status {
             CreationCompletion::Pending { .. } => {
-                self.threshold_date().map_or(true, |t| t <= today)
+                self.threshold_date().map_or(true, |t| today >= t)
             }
             CreationCompletion::Completed { .. } => false,
         }
@@ -454,9 +454,11 @@ impl Task {
             _ => (),
         }
 
-        // Due date
+        // Due date, if not before threshold
         match (due, other_due) {
-            (Some(d), Some(od)) if d != od => {
+            (Some(d), Some(od))
+                if (d != od) && self.is_pending(today) && other.is_pending(today) =>
+            {
                 // Due first are more important
                 let cmp = od.cmp(&d);
                 log::trace!("due: {self:?} {cmp:?} {other:?}");
@@ -719,6 +721,12 @@ impl FromStr for Task {
 #[cfg(test)]
 #[expect(clippy::too_many_lines, clippy::shadow_unrelated)]
 mod tests {
+    use std::{env, path::Path};
+
+    use itertools::Itertools as _;
+
+    use crate::TodoFile;
+
     use super::*;
 
     #[test]
@@ -1276,5 +1284,69 @@ mod tests {
             .id(),
             Some("abcgms".to_owned())
         );
+    }
+
+    #[test]
+    fn test_cmp() {
+        let _ = simple_logger::SimpleLogger::new().env().init();
+
+        let todotxt_var = env::var_os("TODO_FILE");
+        let Some(todotxt_path) = todotxt_var.as_ref().map(Path::new) else {
+            return;
+        };
+        let done_var = env::var_os("DONE_FILE");
+        let Some(done_path) = done_var.as_ref().map(Path::new) else {
+            return;
+        };
+        let tasks = TodoFile::new(todotxt_path, done_path)
+            .unwrap()
+            .load_tasks()
+            .unwrap();
+        for ab in tasks.iter().permutations(2) {
+            let a = ab[0];
+            let b = ab[1];
+            match a.cmp(b, &tasks) {
+                Ordering::Less => {
+                    assert_eq!(b.cmp(a, &tasks), Ordering::Greater);
+                }
+                Ordering::Equal => assert_eq!(b.cmp(a, &tasks), Ordering::Equal),
+                Ordering::Greater => assert_eq!(b.cmp(a, &tasks), Ordering::Less),
+            }
+        }
+        for abc in tasks.iter().permutations(3) {
+            let a = abc[0];
+            let b = abc[1];
+            let c = abc[2];
+            log::trace!("a = {a:?}");
+            log::trace!("b = {b:?}");
+            log::trace!("c = {c:?}");
+            #[expect(clippy::match_same_arms)]
+            match (a.cmp(b, &tasks), b.cmp(c, &tasks)) {
+                // a < b, b < c => a < c
+                (Ordering::Less, Ordering::Less) => assert_eq!(a.cmp(c, &tasks), Ordering::Less),
+                // a < b, b = c => a < c
+                (Ordering::Less, Ordering::Equal) => assert_eq!(a.cmp(c, &tasks), Ordering::Less),
+                // a < b, b > c => ?
+                (Ordering::Less, Ordering::Greater) => {}
+                // a = b, b < c => a < c
+                (Ordering::Equal, Ordering::Less) => assert_eq!(a.cmp(c, &tasks), Ordering::Less),
+                // a = b, b = c => a = c
+                (Ordering::Equal, Ordering::Equal) => assert_eq!(a.cmp(c, &tasks), Ordering::Equal),
+                // a = b, b > c => a > c
+                (Ordering::Equal, Ordering::Greater) => {
+                    assert_eq!(a.cmp(c, &tasks), Ordering::Greater);
+                }
+                // a > b, b < c => ?
+                (Ordering::Greater, Ordering::Less) => {}
+                // a > b, b = c => a > c
+                (Ordering::Greater, Ordering::Equal) => {
+                    assert_eq!(a.cmp(c, &tasks), Ordering::Greater);
+                }
+                // a > b, b > c => a > c
+                (Ordering::Greater, Ordering::Greater) => {
+                    assert_eq!(a.cmp(c, &tasks), Ordering::Greater);
+                }
+            }
+        }
     }
 }
