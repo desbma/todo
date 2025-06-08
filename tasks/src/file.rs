@@ -6,7 +6,7 @@ use std::{
     io::{self, BufRead as _, BufReader, BufWriter, Read as _, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::{mpsc, LazyLock},
+    sync::{LazyLock, mpsc},
 };
 
 use chrono::Duration;

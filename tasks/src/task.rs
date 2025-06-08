@@ -115,9 +115,7 @@ impl Task {
     #[must_use]
     pub fn is_pending(&self, today: Date) -> bool {
         match self.status {
-            CreationCompletion::Pending { .. } => {
-                self.threshold_date().map_or(true, |t| today >= t)
-            }
+            CreationCompletion::Pending { .. } => self.threshold_date().is_none_or(|t| today >= t),
             CreationCompletion::Completed { .. } => false,
         }
     }
@@ -244,6 +242,7 @@ impl Task {
 
     #[must_use]
     pub fn recur(&self, today: Date) -> Option<Self> {
+        #[expect(clippy::return_and_then)]
         self.recurrence().and_then(|r| {
             // Update attributes
             let mut attributes = self.attributes.clone();
@@ -1180,91 +1179,99 @@ mod tests {
 
     #[test]
     fn test_is_same_recurring() {
-        assert!(Task {
-            text: "task text".to_owned(),
-            status: CreationCompletion::Pending { created: None },
-            attributes: vec![
-                ("t".to_owned(), "2023-09-15".to_owned()),
-                ("rec".to_owned(), "+1w".to_owned()),
-            ],
-            ..Task::default()
-        }
-        .is_same_recurring(&Task {
-            text: "task text".to_owned(),
-            status: CreationCompletion::Completed {
-                completed: today(),
-                created: None
-            },
-            attributes: vec![
-                ("t".to_owned(), "2023-09-16".to_owned()),
-                ("rec".to_owned(), "1w".to_owned()),
-            ],
-            ..Task::default()
-        }));
+        assert!(
+            Task {
+                text: "task text".to_owned(),
+                status: CreationCompletion::Pending { created: None },
+                attributes: vec![
+                    ("t".to_owned(), "2023-09-15".to_owned()),
+                    ("rec".to_owned(), "+1w".to_owned()),
+                ],
+                ..Task::default()
+            }
+            .is_same_recurring(&Task {
+                text: "task text".to_owned(),
+                status: CreationCompletion::Completed {
+                    completed: today(),
+                    created: None
+                },
+                attributes: vec![
+                    ("t".to_owned(), "2023-09-16".to_owned()),
+                    ("rec".to_owned(), "1w".to_owned()),
+                ],
+                ..Task::default()
+            })
+        );
 
-        assert!(Task {
-            text: "task text".to_owned(),
-            status: CreationCompletion::Pending { created: None },
-            attributes: vec![
-                ("t".to_owned(), "2023-09-15".to_owned()),
-                ("rec".to_owned(), "+1w".to_owned()),
-            ],
-            ..Task::default()
-        }
-        .is_same_recurring(&Task {
-            text: "task text".to_owned(),
-            status: CreationCompletion::Completed {
-                completed: today(),
-                created: None
-            },
-            attributes: vec![
-                ("t".to_owned(), "2023-09-16".to_owned()),
-                ("rec".to_owned(), "1w".to_owned()),
-                ("started".to_owned(), "2023-09-18".to_owned())
-            ],
-            ..Task::default()
-        }));
+        assert!(
+            Task {
+                text: "task text".to_owned(),
+                status: CreationCompletion::Pending { created: None },
+                attributes: vec![
+                    ("t".to_owned(), "2023-09-15".to_owned()),
+                    ("rec".to_owned(), "+1w".to_owned()),
+                ],
+                ..Task::default()
+            }
+            .is_same_recurring(&Task {
+                text: "task text".to_owned(),
+                status: CreationCompletion::Completed {
+                    completed: today(),
+                    created: None
+                },
+                attributes: vec![
+                    ("t".to_owned(), "2023-09-16".to_owned()),
+                    ("rec".to_owned(), "1w".to_owned()),
+                    ("started".to_owned(), "2023-09-18".to_owned())
+                ],
+                ..Task::default()
+            })
+        );
 
-        assert!(!Task {
-            text: "task text".to_owned(),
-            status: CreationCompletion::Pending { created: None },
-            attributes: vec![
-                ("t".to_owned(), "2023-09-15".to_owned()),
-                ("rec".to_owned(), "+1w".to_owned()),
-            ],
-            ..Task::default()
-        }
-        .is_same_recurring(&Task {
-            text: "task text".to_owned(),
-            status: CreationCompletion::Completed {
-                completed: today(),
-                created: None
-            },
-            attributes: vec![("t".to_owned(), "2023-09-15".to_owned()),],
-            ..Task::default()
-        }));
+        assert!(
+            !Task {
+                text: "task text".to_owned(),
+                status: CreationCompletion::Pending { created: None },
+                attributes: vec![
+                    ("t".to_owned(), "2023-09-15".to_owned()),
+                    ("rec".to_owned(), "+1w".to_owned()),
+                ],
+                ..Task::default()
+            }
+            .is_same_recurring(&Task {
+                text: "task text".to_owned(),
+                status: CreationCompletion::Completed {
+                    completed: today(),
+                    created: None
+                },
+                attributes: vec![("t".to_owned(), "2023-09-15".to_owned()),],
+                ..Task::default()
+            })
+        );
 
-        assert!(!Task {
-            text: "task text".to_owned(),
-            status: CreationCompletion::Pending { created: None },
-            attributes: vec![
-                ("t".to_owned(), "2023-09-15".to_owned()),
-                ("rec".to_owned(), "+1w".to_owned()),
-            ],
-            ..Task::default()
-        }
-        .is_same_recurring(&Task {
-            text: "task text!".to_owned(),
-            status: CreationCompletion::Completed {
-                completed: today(),
-                created: None
-            },
-            attributes: vec![
-                ("t".to_owned(), "2023-09-15".to_owned()),
-                ("rec".to_owned(), "+1w".to_owned()),
-            ],
-            ..Task::default()
-        }));
+        assert!(
+            !Task {
+                text: "task text".to_owned(),
+                status: CreationCompletion::Pending { created: None },
+                attributes: vec![
+                    ("t".to_owned(), "2023-09-15".to_owned()),
+                    ("rec".to_owned(), "+1w".to_owned()),
+                ],
+                ..Task::default()
+            }
+            .is_same_recurring(&Task {
+                text: "task text!".to_owned(),
+                status: CreationCompletion::Completed {
+                    completed: today(),
+                    created: None
+                },
+                attributes: vec![
+                    ("t".to_owned(), "2023-09-15".to_owned()),
+                    ("rec".to_owned(), "+1w".to_owned()),
+                ],
+                ..Task::default()
+            })
+        );
     }
 
     #[test]
