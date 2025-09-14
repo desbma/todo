@@ -88,6 +88,21 @@ fn main() -> anyhow::Result<()> {
     let today = today();
     let cl_args = cl::Action::parse();
     match cl_args {
+        cl::Action::Add { args } => {
+            let task_file = TodoFile::new(todotxt_path, done_path)?;
+            let new_task = args.join(" ").parse()?;
+            log::debug!("{new_task:?}");
+            task_file.add_task(new_task, today)?;
+        }
+        cl::Action::Auto => {
+            let task_file = TodoFile::new(todotxt_path, done_path)?;
+            let mut tasks = task_file.load_tasks()?;
+            let added_count = TodoFile::auto_recur(&mut tasks);
+            let archived_count = task_file.auto_archive(&mut tasks, today)?;
+            if (archived_count > 0) || (added_count > 0) {
+                task_file.save_tasks(tasks)?;
+            }
+        }
         cl::Action::List => {
             let task_file = TodoFile::new(todotxt_path, done_path)?;
             let mut tasks = task_file.load_tasks()?;
@@ -104,85 +119,6 @@ fn main() -> anyhow::Result<()> {
                 );
             }
         }
-
-        cl::Action::Next { simple } => {
-            let task_file = TodoFile::new(todotxt_path, done_path)?;
-            let tasks = task_file.load_tasks()?;
-            if let Some(task) = tasks
-                .iter()
-                .filter(|t| t.is_ready(today, &tasks))
-                .max_by(|a, b| a.cmp(b, &tasks))
-            {
-                if simple {
-                    println!(
-                        "{}{}",
-                        if let Some(priority) = task.priority {
-                            format!("({priority}) ")
-                        } else {
-                            String::new()
-                        },
-                        task.text
-                    );
-                } else {
-                    println!(
-                        "{}",
-                        task.to_string(Some(&StyleContext {
-                            today: &today,
-                            other_tasks: &tasks
-                        }))
-                    );
-                }
-            }
-        }
-
-        cl::Action::Add { args } => {
-            let task_file = TodoFile::new(todotxt_path, done_path)?;
-            let new_task = args.join(" ").parse()?;
-            log::debug!("{new_task:?}");
-            task_file.add_task(new_task, today)?;
-        }
-
-        cl::Action::Undo => {
-            let task_file = TodoFile::new(todotxt_path, done_path)?;
-            task_file.undo_diff()?;
-            let term = dialoguer::console::Term::stdout();
-            if dialoguer::Confirm::new()
-                .with_prompt("Apply above undo change?")
-                .default(false)
-                .interact_on(&term)?
-            {
-                task_file.undo()?;
-            }
-        }
-
-        cl::Action::PendingCount => {
-            let task_file = TodoFile::new(todotxt_path, done_path)?;
-            let tasks = task_file.load_tasks()?;
-            let pending = tasks.iter().filter(|t| t.is_pending(today)).count();
-            println!("{pending}");
-        }
-
-        cl::Action::Report { days } => {
-            let task_file = TodoFile::new(todotxt_path, done_path)?;
-            let date_limit = today - chrono::Duration::days(i64::try_from(days)?);
-            let mut tasks = task_file.filter_all(|t| match t.status {
-                CreationCompletion::Pending { created } => {
-                    created.is_some_and(|c| c >= date_limit) && t.recurrence().is_none()
-                }
-                CreationCompletion::Completed { created, completed } => {
-                    created.is_some_and(|c| c >= date_limit) || (completed >= date_limit)
-                }
-            })?;
-            tasks.sort_by_key(|t| t.completed_date().or_else(|| t.created_date()));
-            let style_ctx = StyleContext {
-                today: &today,
-                other_tasks: &tasks,
-            };
-            for task in &tasks {
-                println!("{}", task.to_string(Some(&style_ctx)));
-            }
-        }
-
         cl::Action::Menu { no_watch } => {
             let task_file = TodoFile::new(todotxt_path, done_path)?;
             if no_watch {
@@ -291,13 +227,96 @@ fn main() -> anyhow::Result<()> {
                 exec_self(&current_exe).context("Failed to exec self")?;
             }
         }
-        cl::Action::Auto => {
+        cl::Action::Next { simple } => {
             let task_file = TodoFile::new(todotxt_path, done_path)?;
-            let mut tasks = task_file.load_tasks()?;
-            let added_count = TodoFile::auto_recur(&mut tasks);
-            let archived_count = task_file.auto_archive(&mut tasks, today)?;
-            if (archived_count > 0) || (added_count > 0) {
-                task_file.save_tasks(tasks)?;
+            let tasks = task_file.load_tasks()?;
+            if let Some(task) = tasks
+                .iter()
+                .filter(|t| t.is_ready(today, &tasks))
+                .max_by(|a, b| a.cmp(b, &tasks))
+            {
+                if simple {
+                    println!(
+                        "{}{}",
+                        if let Some(priority) = task.priority {
+                            format!("({priority}) ")
+                        } else {
+                            String::new()
+                        },
+                        task.text
+                    );
+                } else {
+                    println!(
+                        "{}",
+                        task.to_string(Some(&StyleContext {
+                            today: &today,
+                            other_tasks: &tasks
+                        }))
+                    );
+                }
+            }
+        }
+        cl::Action::NotifyOverdue => {
+            let task_file = TodoFile::new(todotxt_path, done_path)?;
+            let tasks = task_file.load_tasks()?;
+            let mut overdue_tasks: Vec<_> = tasks
+                .iter()
+                .filter(|t| t.is_overdue(today) && t.is_ready(today, &tasks))
+                .collect();
+            if !overdue_tasks.is_empty() {
+                overdue_tasks.sort_by(|a, b| b.cmp(a, &tasks));
+                let body = overdue_tasks
+                    .iter()
+                    .map(|t| t.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                notify_rust::Notification::new()
+                    .summary(&format!(
+                        "{}: {} overdue task(s)",
+                        env!("CARGO_PKG_NAME"),
+                        overdue_tasks.len(),
+                    ))
+                    .body(&body)
+                    .icon("task-past-due")
+                    .show()?;
+            }
+        }
+        cl::Action::PendingCount => {
+            let task_file = TodoFile::new(todotxt_path, done_path)?;
+            let tasks = task_file.load_tasks()?;
+            let pending = tasks.iter().filter(|t| t.is_pending(today)).count();
+            println!("{pending}");
+        }
+        cl::Action::Report { days } => {
+            let task_file = TodoFile::new(todotxt_path, done_path)?;
+            let date_limit = today - chrono::Duration::days(i64::try_from(days)?);
+            let mut tasks = task_file.filter_all(|t| match t.status {
+                CreationCompletion::Pending { created } => {
+                    created.is_some_and(|c| c >= date_limit) && t.recurrence().is_none()
+                }
+                CreationCompletion::Completed { created, completed } => {
+                    created.is_some_and(|c| c >= date_limit) || (completed >= date_limit)
+                }
+            })?;
+            tasks.sort_by_key(|t| t.completed_date().or_else(|| t.created_date()));
+            let style_ctx = StyleContext {
+                today: &today,
+                other_tasks: &tasks,
+            };
+            for task in &tasks {
+                println!("{}", task.to_string(Some(&style_ctx)));
+            }
+        }
+        cl::Action::Undo => {
+            let task_file = TodoFile::new(todotxt_path, done_path)?;
+            task_file.undo_diff()?;
+            let term = dialoguer::console::Term::stdout();
+            if dialoguer::Confirm::new()
+                .with_prompt("Apply above undo change?")
+                .default(false)
+                .interact_on(&term)?
+            {
+                task_file.undo()?;
             }
         }
     }

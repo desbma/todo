@@ -15,6 +15,7 @@ itertools = { version = "0.14.0", default-features = false, features = ["use_std
 fzf-wrapped = { version = "0.1.4", default-features = false }
 log = { version = "0.4.27", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
 notify = { version = "8.0.0", default-features = false }
+notify-rust = { version = "4.11.7", default-features = false, features = ["zbus", "serde"] }
 regex = { version = "1.11.1", default-features = false, features = ["std", "unicode"] }
 simple_logger = { version = "5.0.0", default-features = false, features = ["colors", "stderr"] }
 strum = { version = "0.27.1", default-features = false, features = ["std", "derive"] }

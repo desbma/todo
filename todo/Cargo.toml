@@ -13,6 +13,7 @@ dialoguer = { workspace = true }
 fzf-wrapped = { workspace = true }
 log = { workspace = true }
 notify = { workspace = true }
+notify-rust = { workspace = true }
 simple_logger = { workspace = true }
 tasks = { path = "../tasks" }
 wait-timeout = { workspace = true }
