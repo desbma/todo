@@ -14,9 +14,9 @@ dialoguer = { version = "0.12.0", default-features = false }
 itertools = { version = "0.14.0", default-features = false, features = ["use_std"] }
 fzf-wrapped = { version = "0.1.4", default-features = false }
 log = { version = "0.4.29", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
+nom = { version = "8.0.0", default-features = false, features = ["std"] }
 notify = { version = "8.2.0", default-features = false }
 notify-rust = { version = "4.12.0", default-features = false, features = ["zbus", "serde", "async"] }
-regex = { version = "1.12.3", default-features = false, features = ["std", "unicode"] }
 simple_logger = { version = "5.2.0", default-features = false, features = ["colors", "stderr"] }
 strum = { version = "0.28.0", default-features = false, features = ["std", "derive"] }
 tempfile = { version = "3.26.0", default-features = false }

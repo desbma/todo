@@ -5,11 +5,17 @@ use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher as _},
     str::FromStr,
-    sync::LazyLock,
 };
 
 use chrono::Duration;
-use regex::{Regex, RegexBuilder};
+use nom::{
+    IResult, Parser as _,
+    branch::alt,
+    bytes::complete::{take, take_while1},
+    character::complete::{char, digit1, satisfy, space1},
+    combinator::{map, map_opt, map_res, opt, peek, value, verify},
+    sequence::{delimited, preceded, terminated},
+};
 
 pub type Date = chrono::naive::NaiveDate;
 
@@ -25,6 +31,14 @@ pub(crate) enum TagKind {
     Hash,
     #[strum(serialize = "@")]
     Arobase,
+}
+
+impl TagKind {
+    fn from_char(c: char) -> Option<Self> {
+        let mut buf = [0_u8; 4];
+        let s = c.encode_utf8(&mut buf);
+        s.parse().ok()
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -61,7 +75,7 @@ pub struct Task {
     pub index: Option<usize>,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 enum RecurrenceReference {
     Task,
     Completed,
@@ -76,33 +90,27 @@ pub struct Recurrence {
 const DATE_FORMAT: &str = "%Y-%m-%d";
 const RECURRENCE_TAG_KEYS: [&str; 2] = ["rec", "rec2"];
 
-static REC_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?<ref>\+?)(?<val>\d+)(?<unit>d|w|m|y)").unwrap());
-
-impl FromStr for Recurrence {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let caps = REC_REGEX
-            .captures(s)
-            .ok_or_else(|| anyhow::anyhow!("Invalid recurrence"))?;
-        let ref_ = caps.name("ref").unwrap().as_str();
-        let val = caps.name("val").unwrap().as_str().parse::<u64>()?;
-        let unit = caps.name("unit").unwrap().as_str();
-        let delta = match unit {
-            "d" => Duration::days(val.try_into()?),
-            "w" => Duration::weeks(val.try_into()?),
-            "m" => Duration::days((30 * val).try_into()?),
-            "y" => Duration::days((365 * val).try_into()?),
-            _ => unreachable!(),
-        };
-        let reference = match ref_ {
-            "" => RecurrenceReference::Completed,
-            "+" => RecurrenceReference::Task,
-            _ => unreachable!(),
-        };
-        Ok(Self { delta, reference })
-    }
+/// Parse a recurrence string like `+3d`, `10w`, `1m`, `2y`
+fn parse_recurrence(input: &str) -> IResult<&str, Recurrence> {
+    let reference = alt((
+        value(RecurrenceReference::Task, char('+')),
+        value(RecurrenceReference::Completed, peek(digit1)),
+    ));
+    let val = map_res(digit1, |s: &str| s.parse::<i64>());
+    let days_per_unit = alt((
+        value(1_i64, char('d')),
+        value(7_i64, char('w')),
+        value(30_i64, char('m')),
+        value(365_i64, char('y')),
+    ));
+    map(
+        (reference, val, days_per_unit),
+        |(reference, val, days_per_unit)| Recurrence {
+            delta: Duration::days(val * days_per_unit),
+            reference,
+        },
+    )
+    .parse(input)
 }
 
 pub struct StyleContext<'a> {
@@ -224,7 +232,7 @@ impl Task {
         self.attributes
             .iter()
             .find(|a| RECURRENCE_TAG_KEYS.contains(&a.0.as_str()))
-            .and_then(|v| v.1.parse().ok())
+            .and_then(|v| parse_recurrence(&v.1).ok().map(|(_, r)| r))
     }
 
     pub fn set_done(&mut self, today: Date) -> anyhow::Result<()> {
@@ -609,110 +617,176 @@ impl Task {
     }
 }
 
-static TASK_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    RegexBuilder::new(
-        r"
-^
-(
-    (
-        x\ (?<completed>\d{4}-\d{2}-\d{2})\ ((?<completed_created>\d{4}-\d{2}-\d{2})\ )?
-    )
-    |
-    (
-        ((?<priority>\([A-Z]\))\ )?
-        ((?<created>\d{4}-\d{2}-\d{2})\ )?
-    )
-)?
-(?<text>.*)
-$
-",
-    )
-    .ignore_whitespace(true)
-    .build()
-    .unwrap()
-});
+fn parse_date_token(input: &str) -> IResult<&str, Date> {
+    // Recognize exactly 10 chars matching digit patterns
+    let date_str = verify(take(10_usize), |s: &str| {
+        s.len() == 10
+            && s.as_bytes().iter().enumerate().all(|(i, b)| match i {
+                4 | 7 => *b == b'-',
+                _ => b.is_ascii_digit(),
+            })
+    });
+    map_opt(date_str, |s: &str| {
+        Date::parse_from_str(s, DATE_FORMAT).ok()
+    })
+    .parse(input)
+}
 
-static ATTRIBUTE_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" ?(\w+:[^\s]+)").unwrap());
+fn parse_priority(input: &str) -> IResult<&str, char> {
+    delimited(char('('), satisfy(|c| c.is_ascii_uppercase()), char(')')).parse(input)
+}
 
-static TAG_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" ?([+#@][^\s]+)").unwrap());
+fn parse_completed_prefix(input: &str) -> IResult<&str, (Date, Option<Date>)> {
+    let completed = preceded(
+        terminated(char('x'), space1),
+        terminated(parse_date_token, space1),
+    );
+    let created = opt(terminated(parse_date_token, space1));
+    (completed, created).parse(input)
+}
+
+fn parse_pending_prefix(input: &str) -> IResult<&str, (Option<char>, Option<Date>)> {
+    let priority = opt(terminated(parse_priority, space1));
+    let created = opt(terminated(parse_date_token, space1));
+    (priority, created).parse(input)
+}
+
+/// Tokens that can appear in the body of a task line
+enum BodyToken<'a> {
+    Attribute(&'a str, &'a str),
+    Tag(TagKind, &'a str),
+    Plain(&'a str),
+}
+
+/// Parse a single non-whitespace word
+fn parse_word(input: &str) -> IResult<&str, &str> {
+    take_while1(|c: char| !c.is_ascii_whitespace()).parse(input)
+}
+
+fn parse_attribute(input: &str) -> IResult<&str, (&str, &str)> {
+    let atom = verify(parse_word, |s: &str| {
+        // Must contain ':' that is not at position 0 and not at the end
+        s.split_once(':').is_some_and(|(key, val)| {
+            !key.is_empty()
+                && !val.is_empty()
+                && key.chars().all(|c| c.is_alphanumeric() || c == '_')
+        })
+    });
+    map(atom, |s: &str| {
+        let (key, val) = s.split_once(':').unwrap_or_default();
+        (key, val)
+    })
+    .parse(input)
+}
+
+fn parse_tag(input: &str) -> IResult<&str, (TagKind, &str)> {
+    // TagKind derives strum::EnumString with serialize attributes matching +, @, #
+    let prefix = map_opt(
+        satisfy(|c| matches!(c, '+' | '@' | '#')),
+        TagKind::from_char,
+    );
+    let val = take_while1(|c: char| !c.is_ascii_whitespace());
+    (prefix, val).parse(input)
+}
+
+fn parse_body_token(input: &str) -> IResult<&str, BodyToken<'_>> {
+    alt((
+        map(parse_attribute, |(k, v)| BodyToken::Attribute(k, v)),
+        map(parse_tag, |(kind, val)| BodyToken::Tag(kind, val)),
+        map(parse_word, BodyToken::Plain),
+    ))
+    .parse(input)
+}
+
+fn parse_prefix(input: &str) -> IResult<&str, (Option<char>, CreationCompletion)> {
+    alt((
+        map(parse_completed_prefix, |(completed, created)| {
+            (None, CreationCompletion::Completed { created, completed })
+        }),
+        map(
+            verify(parse_pending_prefix, |(pri, created)| {
+                pri.is_some() || created.is_some()
+            }),
+            |(pri, created)| (pri, CreationCompletion::Pending { created }),
+        ),
+    ))
+    .parse(input)
+}
+
+struct ParsedBody<'a> {
+    tags: Vec<Tag>,
+    attributes: Vec<(String, String)>,
+    text_parts: Vec<&'a str>,
+    pri_attr: Option<char>,
+}
+
+fn parse_body(input: &str) -> IResult<&str, ParsedBody<'_>> {
+    let token = preceded(opt(space1), parse_body_token);
+    let (rest, tokens) = nom::multi::many0(token).parse(input)?;
+
+    let mut body = ParsedBody {
+        tags: Vec::new(),
+        attributes: Vec::new(),
+        text_parts: Vec::new(),
+        pri_attr: None,
+    };
+    for t in tokens {
+        match t {
+            BodyToken::Attribute("pri", val) if body.pri_attr.is_none() => {
+                body.pri_attr = val.chars().next();
+            }
+            BodyToken::Attribute(key, val) => {
+                body.attributes.push((key.to_owned(), val.to_owned()));
+            }
+            BodyToken::Tag(kind, val) => {
+                body.tags.push(Tag {
+                    kind,
+                    value: val.to_owned(),
+                });
+            }
+            BodyToken::Plain(word) => {
+                body.text_parts.push(word);
+            }
+        }
+    }
+
+    Ok((rest, body))
+}
+
+fn parse_task(input: &str) -> IResult<&str, Task> {
+    let (rest, (prefix_priority, status)) = opt(parse_prefix)
+        .map(|o| o.unwrap_or((None, CreationCompletion::Pending { created: None })))
+        .parse(input)?;
+
+    let (rest, body) = parse_body(rest)?;
+    let priority = prefix_priority.or(body.pri_attr);
+    let text = body.text_parts.join(" ");
+
+    Ok((
+        rest,
+        Task {
+            priority,
+            status,
+            tags: body.tags,
+            attributes: body.attributes,
+            text,
+            index: None,
+        },
+    ))
+}
 
 /// Parse task from line
 /// Last time I checked, existing parsers were not a good fit:
 /// - `todotxt` (<https://crates.io/crates/todotxt>) is extremely buggy (not usable even for trivial stuff)
 /// - `todo_lib` (<https://crates.io/crates/todo_lib>) does not separate task text from the rest
 ///
-/// So roll our own using the regex crate, and unit tests to cover most cases
-/// Note on error handling: we can unwrap (panic) if a regex result expectation is broken, but never if the error can be
-/// reached with invalid input line.
+/// So roll our own using nom combinators, and unit tests to cover most cases
 impl FromStr for Task {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let caps = TASK_REGEX
-            .captures(s)
-            .ok_or_else(|| anyhow::anyhow!("Unable to parse {s:?}"))?;
-
-        let mut text = caps
-            .name("text")
-            .map(|m| m.as_str())
-            .unwrap_or_default()
-            .to_owned();
-
-        let mut priority = caps
-            .name("priority")
-            .map(|m| m.as_str().chars().nth(1).unwrap());
-
-        let mut attributes = Vec::new();
-        while let Some(attribute_match) = ATTRIBUTE_REGEX.find_iter(&text).next() {
-            let (mut key, val) = attribute_match.as_str().split_once(':').unwrap();
-            key = key.trim_start();
-            if (key == "pri") && priority.is_none() {
-                priority = Some(val.chars().next().unwrap());
-            } else {
-                attributes.push((key.to_owned(), val.to_owned()));
-            }
-            text.replace_range(attribute_match.range(), "");
-            text = text.trim().to_owned();
-        }
-
-        let mut tags = Vec::new();
-        #[expect(clippy::string_slice)] // if the regex succeeds, we know the first char is ascii
-        while let Some(tag_match) = TAG_REGEX.find_iter(&text).next() {
-            let tag_str = tag_match.as_str().trim_start();
-            let kind = tag_str[0..1].parse().unwrap();
-            tags.push(Tag {
-                kind,
-                value: tag_str[1..tag_str.len()].to_owned(),
-            });
-            text.replace_range(tag_match.range(), "");
-            text = text.trim().to_owned();
-        }
-
-        let status = if let Some(completed) = caps.name("completed") {
-            CreationCompletion::Completed {
-                created: caps
-                    .name("completed_created")
-                    .map(|m| m.as_str().parse::<Date>())
-                    .transpose()?,
-                completed: completed.as_str().parse::<Date>()?,
-            }
-        } else {
-            CreationCompletion::Pending {
-                created: caps
-                    .name("created")
-                    .map(|m| m.as_str().parse::<Date>())
-                    .transpose()?,
-            }
-        };
-
-        Ok(Task {
-            priority,
-            status,
-            tags,
-            attributes,
-            text,
-            index: None,
-        })
+        let (_, task) = parse_task(s).map_err(|e| anyhow::anyhow!("Failed to parse task: {e}"))?;
+        Ok(task)
     }
 }
 
@@ -989,16 +1063,16 @@ mod tests {
     }
 
     #[test]
-    fn parse_recurrence() {
+    fn parse_recurrence_basic() {
         assert_eq!(
-            "+3d".parse::<Recurrence>().unwrap(),
+            parse_recurrence("+3d").unwrap().1,
             Recurrence {
                 delta: Duration::days(3),
                 reference: RecurrenceReference::Task,
             }
         );
         assert_eq!(
-            "10w".parse::<Recurrence>().unwrap(),
+            parse_recurrence("10w").unwrap().1,
             Recurrence {
                 delta: Duration::weeks(10),
                 reference: RecurrenceReference::Completed,
@@ -1353,5 +1427,259 @@ mod tests {
                 }
             }
         }
+    }
+
+    // --- Parser helper tests ---
+
+    #[test]
+    fn date_token_valid() {
+        let (rest, d) = parse_date_token("2023-08-20 foo").unwrap();
+        assert_eq!(d, Date::from_ymd_opt(2023, 8, 20).unwrap());
+        assert_eq!(rest, " foo");
+    }
+
+    #[test]
+    fn date_token_invalid_month() {
+        assert!(parse_date_token("2023-13-01").is_err());
+    }
+
+    #[test]
+    fn date_token_malformed_separators() {
+        assert!(parse_date_token("2023/08/20").is_err());
+    }
+
+    #[test]
+    fn priority_token_valid() {
+        let (rest, p) = parse_priority("(A) foo").unwrap();
+        assert_eq!(p, 'A');
+        assert_eq!(rest, " foo");
+    }
+
+    #[test]
+    fn priority_token_lowercase_rejection() {
+        assert!(parse_priority("(a)").is_err());
+    }
+
+    #[test]
+    fn priority_token_malformed() {
+        assert!(parse_priority("A)").is_err());
+        assert!(parse_priority("(A").is_err());
+    }
+
+    #[test]
+    fn completed_prefix_with_created() {
+        let (rest, (completed, created)) =
+            parse_completed_prefix("x 2023-08-21 2023-08-20 task").unwrap();
+        assert_eq!(completed, Date::from_ymd_opt(2023, 8, 21).unwrap());
+        assert_eq!(created, Some(Date::from_ymd_opt(2023, 8, 20).unwrap()));
+        assert_eq!(rest, "task");
+    }
+
+    #[test]
+    fn completed_prefix_without_created() {
+        let (rest, (completed, created)) = parse_completed_prefix("x 2023-08-21 task").unwrap();
+        assert_eq!(completed, Date::from_ymd_opt(2023, 8, 21).unwrap());
+        assert_eq!(created, None);
+        assert_eq!(rest, "task");
+    }
+
+    #[test]
+    fn pending_prefix_priority_only() {
+        let (rest, (pri, created)) = parse_pending_prefix("(B) task").unwrap();
+        assert_eq!(pri, Some('B'));
+        assert_eq!(created, None);
+        assert_eq!(rest, "task");
+    }
+
+    #[test]
+    fn pending_prefix_created_only() {
+        let (rest, (pri, created)) = parse_pending_prefix("2023-08-20 task").unwrap();
+        assert_eq!(pri, None);
+        assert_eq!(created, Some(Date::from_ymd_opt(2023, 8, 20).unwrap()));
+        assert_eq!(rest, "task");
+    }
+
+    #[test]
+    fn pending_prefix_both() {
+        let (rest, (pri, created)) = parse_pending_prefix("(A) 2023-08-20 task").unwrap();
+        assert_eq!(pri, Some('A'));
+        assert_eq!(created, Some(Date::from_ymd_opt(2023, 8, 20).unwrap()));
+        assert_eq!(rest, "task");
+    }
+
+    #[test]
+    fn pending_prefix_empty() {
+        let (rest, (pri, created)) = parse_pending_prefix("task").unwrap();
+        assert_eq!(pri, None);
+        assert_eq!(created, None);
+        assert_eq!(rest, "task");
+    }
+
+    #[test]
+    fn attribute_standard() {
+        let (rest, (k, v)) = parse_attribute("due:2023-09-10 foo").unwrap();
+        assert_eq!(k, "due");
+        assert_eq!(v, "2023-09-10");
+        assert_eq!(rest, " foo");
+    }
+
+    #[test]
+    fn attribute_numeric_underscore_key() {
+        let (rest, (k, v)) = parse_attribute("key_2:val").unwrap();
+        assert_eq!(k, "key_2");
+        assert_eq!(v, "val");
+        assert_eq!(rest, "");
+    }
+
+    #[test]
+    fn attribute_missing_value_rejection() {
+        assert!(parse_attribute("key:").is_err());
+    }
+
+    #[test]
+    fn tag_plus() {
+        let (rest, (kind, val)) = parse_tag("+project foo").unwrap();
+        assert_eq!(kind, TagKind::Plus);
+        assert_eq!(val, "project");
+        assert_eq!(rest, " foo");
+    }
+
+    #[test]
+    fn tag_hash() {
+        let (rest, (kind, val)) = parse_tag("#label").unwrap();
+        assert_eq!(kind, TagKind::Hash);
+        assert_eq!(val, "label");
+        assert_eq!(rest, "");
+    }
+
+    #[test]
+    fn tag_arobase() {
+        let (rest, (kind, val)) = parse_tag("@context").unwrap();
+        assert_eq!(kind, TagKind::Arobase);
+        assert_eq!(val, "context");
+        assert_eq!(rest, "");
+    }
+
+    #[test]
+    fn tag_prefix_only_rejection() {
+        assert!(parse_tag("+ ").is_err());
+    }
+
+    #[test]
+    fn plain_word_normal() {
+        let (rest, w) = parse_word("hello world").unwrap();
+        assert_eq!(w, "hello");
+        assert_eq!(rest, " world");
+    }
+
+    #[test]
+    fn plain_word_punctuation() {
+        let (rest, w) = parse_word("hello! world").unwrap();
+        assert_eq!(w, "hello!");
+        assert_eq!(rest, " world");
+    }
+
+    #[test]
+    fn recurrence_all_units() {
+        assert_eq!(
+            parse_recurrence("+3d").unwrap().1,
+            Recurrence {
+                delta: Duration::days(3),
+                reference: RecurrenceReference::Task,
+            }
+        );
+        assert_eq!(
+            parse_recurrence("10w").unwrap().1,
+            Recurrence {
+                delta: Duration::weeks(10),
+                reference: RecurrenceReference::Completed,
+            }
+        );
+        assert_eq!(
+            parse_recurrence("2m").unwrap().1,
+            Recurrence {
+                delta: Duration::days(60),
+                reference: RecurrenceReference::Completed,
+            }
+        );
+        assert_eq!(
+            parse_recurrence("+1y").unwrap().1,
+            Recurrence {
+                delta: Duration::days(365),
+                reference: RecurrenceReference::Task,
+            }
+        );
+    }
+
+    #[test]
+    fn recurrence_invalid() {
+        assert!(parse_recurrence("abc").is_err());
+        assert!(parse_recurrence("3x").is_err());
+        assert!(parse_recurrence("d").is_err());
+    }
+
+    // --- Integration / parity tests ---
+
+    #[test]
+    fn parse_prefix_interleaved_tags_attrs_text() {
+        let task = "(A) 2023-08-20 +proj task text due:2023-09-10 @ctx more #lbl"
+            .parse::<Task>()
+            .unwrap();
+        assert_eq!(task.priority, Some('A'));
+        assert_eq!(
+            task.status,
+            CreationCompletion::Pending {
+                created: Some(Date::from_ymd_opt(2023, 8, 20).unwrap())
+            }
+        );
+        assert_eq!(task.text, "task text more");
+        assert_eq!(task.tags.len(), 3);
+        assert_eq!(task.attributes.len(), 1);
+        assert_eq!(
+            task.attributes[0],
+            ("due".to_owned(), "2023-09-10".to_owned())
+        );
+    }
+
+    #[test]
+    fn parse_repeated_pri_attribute() {
+        let task = "x 2023-08-21 task pri:A pri:B".parse::<Task>().unwrap();
+        assert_eq!(task.priority, Some('A'));
+        assert_eq!(task.attributes.len(), 1);
+        assert_eq!(task.attributes[0], ("pri".to_owned(), "B".to_owned()));
+    }
+
+    #[test]
+    fn parse_extra_spaces() {
+        let task = "  task   text  ".parse::<Task>().unwrap();
+        assert_eq!(task.text, "task text");
+    }
+
+    #[test]
+    fn roundtrip_pending() {
+        let input = "(B) 2023-08-20 +proj @ctx task text due:2023-09-10 rec:+1w";
+        let task = input.parse::<Task>().unwrap();
+        let output = task.to_string(None);
+        let reparsed = output.parse::<Task>().unwrap();
+        assert_eq!(task, reparsed);
+    }
+
+    #[test]
+    fn roundtrip_completed() {
+        let input = "x 2023-08-21 2023-08-20 +proj task text due:2023-09-10 pri:C";
+        let task = input.parse::<Task>().unwrap();
+        let output = task.to_string(None);
+        let reparsed = output.parse::<Task>().unwrap();
+        assert_eq!(task, reparsed);
+    }
+
+    #[test]
+    fn tags_attrs_from_middle() {
+        let task = "word1 +tag1 word2 key:val word3 @ctx word4"
+            .parse::<Task>()
+            .unwrap();
+        assert_eq!(task.text, "word1 word2 word3 word4");
+        assert_eq!(task.tags.len(), 2);
+        assert_eq!(task.attributes.len(), 1);
     }
 }
