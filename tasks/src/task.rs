@@ -615,8 +615,7 @@ static TASK_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 ^
 (
     (
-        x\ (?<completed>\d{4}-\d{2}-\d{2})\ 
-        ((?<completed_created>\d{4}-\d{2}-\d{2})\ )?
+        x\ (?<completed>\d{4}-\d{2}-\d{2})\ ((?<completed_created>\d{4}-\d{2}-\d{2})\ )?
     )
     |
     (
@@ -724,18 +723,17 @@ mod tests {
 
     use itertools::Itertools as _;
 
+    use super::*;
     use crate::TodoFile;
 
-    use super::*;
-
     #[test]
-    fn test_display_empty() {
+    fn display_empty() {
         let task = Task::default();
         assert_eq!(task.to_string(None), "");
     }
 
     #[test]
-    fn test_display_simple() {
+    fn display_simple() {
         let task = Task {
             text: "task text".to_owned(),
             ..Task::default()
@@ -744,7 +742,7 @@ mod tests {
     }
 
     #[test]
-    fn test_display_prio() {
+    fn display_prio() {
         let task = Task {
             text: "task text".to_owned(),
             priority: Some('C'),
@@ -754,7 +752,7 @@ mod tests {
     }
 
     #[test]
-    fn test_display_created_date() {
+    fn display_created_date() {
         let task = Task {
             text: "task text".to_owned(),
             status: CreationCompletion::Pending {
@@ -766,7 +764,7 @@ mod tests {
     }
 
     #[test]
-    fn test_display_completed() {
+    fn display_completed() {
         let task = Task {
             text: "task text".to_owned(),
             status: CreationCompletion::Completed {
@@ -779,7 +777,7 @@ mod tests {
     }
 
     #[test]
-    fn test_display_completed_created_date() {
+    fn display_completed_created_date() {
         let task = Task {
             text: "task text".to_owned(),
             status: CreationCompletion::Completed {
@@ -792,7 +790,7 @@ mod tests {
     }
 
     #[test]
-    fn test_display_completed_priority() {
+    fn display_completed_priority() {
         let task = Task {
             priority: Some('D'),
             text: "task text".to_owned(),
@@ -806,7 +804,7 @@ mod tests {
     }
 
     #[test]
-    fn test_display_attributes() {
+    fn display_attributes() {
         let task = Task {
             text: "task text".to_owned(),
 
@@ -826,7 +824,7 @@ mod tests {
     }
 
     #[test]
-    fn test_display_tags() {
+    fn display_tags() {
         let task = Task {
             text: "task text".to_owned(),
             tags: vec![
@@ -853,12 +851,12 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_empty() {
+    fn parse_empty() {
         assert_eq!("".parse::<Task>().unwrap(), Task::default());
     }
 
     #[test]
-    fn test_parse_simple() {
+    fn parse_simple() {
         assert_eq!(
             "task text".parse::<Task>().unwrap(),
             Task {
@@ -869,7 +867,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_prio() {
+    fn parse_prio() {
         assert_eq!(
             "(C) task text".parse::<Task>().unwrap(),
             Task {
@@ -881,7 +879,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_created_date() {
+    fn parse_created_date() {
         assert_eq!(
             "2023-08-20 task text".parse::<Task>().unwrap(),
             Task {
@@ -895,7 +893,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_completed() {
+    fn parse_completed() {
         assert_eq!(
             "x 2023-08-21 task text".parse::<Task>().unwrap(),
             Task {
@@ -910,7 +908,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_completed_created_date() {
+    fn parse_completed_created_date() {
         assert_eq!(
             "x 2023-08-21 2023-08-20 task text".parse::<Task>().unwrap(),
             Task {
@@ -925,7 +923,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_completed_priority() {
+    fn parse_completed_priority() {
         assert_eq!(
             "x 2023-08-21 task text pri:D".parse::<Task>().unwrap(),
             Task {
@@ -942,7 +940,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_attributes() {
+    fn parse_attributes() {
         assert_eq!(
             "attr1:v1 attr2:v2 task text attr3:v3 attr4:v4 rec:+3d"
                 .parse::<Task>()
@@ -962,7 +960,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_tags() {
+    fn parse_tags() {
         assert_eq!(
             "+tag1 @tag2 task text #tag3 +tag4".parse::<Task>().unwrap(),
             Task {
@@ -991,7 +989,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_recurrence() {
+    fn parse_recurrence() {
         assert_eq!(
             "+3d".parse::<Recurrence>().unwrap(),
             Recurrence {
@@ -1009,7 +1007,7 @@ mod tests {
     }
 
     #[test]
-    fn test_recur() {
+    fn recur() {
         let today = Date::from_ymd_opt(2023, 9, 9).unwrap();
 
         let task = Task {
@@ -1178,7 +1176,7 @@ mod tests {
     }
 
     #[test]
-    fn test_is_same_recurring() {
+    fn is_same_recurring() {
         assert!(
             Task {
                 text: "task text".to_owned(),
@@ -1275,7 +1273,7 @@ mod tests {
     }
 
     #[test]
-    fn test_autogenerate_id() {
+    fn autogenerate_id() {
         assert_eq!(
             Task {
                 priority: None,
@@ -1294,7 +1292,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cmp() {
+    fn cmp() {
         let _ = simple_logger::SimpleLogger::new().env().init();
 
         let todotxt_var = env::var_os("TODO_FILE");

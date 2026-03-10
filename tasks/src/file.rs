@@ -212,19 +212,17 @@ impl TodoFile {
     }
 
     pub fn auto_archive(&self, tasks: &mut Vec<Task>, today: Date) -> anyhow::Result<usize> {
-        // TODO use https://doc.rust-lang.org/std/vec/struct.Vec.html#method.extract_if when stabilized
-        let mut to_archive = Vec::new();
-        let mut i = 0;
-        while i < tasks.len() {
-            if let CreationCompletion::Completed { completed, .. } = tasks[i].status {
-                if today - completed >= *AUTO_ARCHIVE_COMPLETED_THRESHOLD {
-                    let task = tasks.remove(i);
-                    to_archive.push(task);
-                    continue;
+        let to_archive: Vec<_> = tasks
+            .extract_if(.., |task| {
+                if let CreationCompletion::Completed { completed, .. } = task.status
+                    && ((today - completed) >= *AUTO_ARCHIVE_COMPLETED_THRESHOLD)
+                {
+                    true
+                } else {
+                    false
                 }
-            }
-            i += 1;
-        }
+            })
+            .collect();
 
         let to_archive_count = to_archive.len();
         if !to_archive.is_empty() {
@@ -254,8 +252,10 @@ impl TodoFile {
                 .collect();
 
             // Split done file
+            #[expect(clippy::indexing_slicing)]
             let new_done_lines = &done_lines[done_line_count - DONE_FILE_TASK_COUNT_TARGET..];
             debug_assert_eq!(new_done_lines.len(), DONE_FILE_TASK_COUNT_TARGET);
+            #[expect(clippy::indexing_slicing)]
             let to_compress_lines = &done_lines[..done_line_count - DONE_FILE_TASK_COUNT_TARGET];
 
             // Open existing compressed file
@@ -463,7 +463,7 @@ mod tests {
     }
 
     #[test]
-    fn test_empty() {
+    fn empty() {
         let (todo_file, done_file) = todotxtfiles(&[]);
         assert_eq!(
             TodoFile::new(todo_file.path(), done_file.path())
@@ -475,7 +475,7 @@ mod tests {
     }
 
     #[test]
-    fn test_simple() {
+    fn simple() {
         let (todo_file, done_file) = todotxtfiles(&["task text", "(C) task2 text"]);
         assert_eq!(
             TodoFile::new(todo_file.path(), done_file.path())

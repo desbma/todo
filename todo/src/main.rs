@@ -149,14 +149,16 @@ fn main() -> anyhow::Result<()> {
                         .map(|t| format!("{}#{}", t.0, t.1.to_string(Some(&style_ctx))))
                         .collect::<Vec<_>>();
                     let task_selection: Option<usize> =
-                        fzf_wrapped::run_with_output(fzf, fzf_lines)
-                            .and_then(|s| s.split_once('#').and_then(|t| t.0.parse().ok()));
+                        fzf_wrapped::run_with_output(fzf, fzf_lines).and_then(|s| {
+                            let t = s.split_once('#')?;
+                            t.0.parse().ok()
+                        });
                     match task_selection {
                         None => break,
                         Some(task_idx) => {
                             let task = tasks.get(task_idx).unwrap();
                             let action_selection = dialoguer::Select::with_theme(&theme)
-                                .items(&TASK_ACTIONS)
+                                .items(TASK_ACTIONS)
                                 .default(0)
                                 .interact_on_opt(&term)?;
                             match action_selection {
