@@ -12,10 +12,7 @@ pub(crate) enum Action {
     /// List all tasks, ordered by urgency
     List,
     /// Interactive task menu
-    Menu {
-        #[arg(short, long, default_value_t = false)]
-        no_watch: bool,
-    },
+    Menu,
     /// Get most urgent task
     Next {
         /// Short output

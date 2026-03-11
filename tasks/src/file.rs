@@ -426,7 +426,7 @@ impl TodoFile {
     where
         W: Write,
     {
-        writeln!(writer, "{}", task.to_string(None))
+        writeln!(writer, "{}", task.to_todotxt_line())
     }
 
     pub fn filter_all<F>(&self, f: F) -> anyhow::Result<Vec<Task>>

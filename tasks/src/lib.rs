@@ -2,4 +2,4 @@ mod file;
 mod task;
 
 pub use file::TodoFile;
-pub use task::{CreationCompletion, Date, StyleContext, Task};
+pub use task::{CreationCompletion, Date, Tag, TagKind, Task};

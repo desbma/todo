@@ -9,18 +9,17 @@ resolver = "2"
 anyhow = { version = "1.0.102", default-features = false, features = ["std", "backtrace"] }
 chrono = { version = "0.4.44", default-features = false, features = ["std", "clock"] }
 clap = { version = "4.5.60", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
-console = { version = "0.16.2", default-features = false, features = ["std"] }
-dialoguer = { version = "0.12.0", default-features = false }
+crossterm = { version = "0.28", default-features = false }
+fuzzy-matcher = { version = "0.3", default-features = false }
 itertools = { version = "0.14.0", default-features = false, features = ["use_std"] }
-fzf-wrapped = { version = "0.1.4", default-features = false }
 log = { version = "0.4.29", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
 nom = { version = "8.0.0", default-features = false, features = ["std"] }
 notify = { version = "8.2.0", default-features = false }
 notify-rust = { version = "4.12.0", default-features = false, features = ["zbus", "serde", "async"] }
+ratatui = { version = "0.29", default-features = false, features = ["crossterm"] }
 simple_logger = { version = "5.2.0", default-features = false, features = ["colors", "stderr"] }
 strum = { version = "0.28.0", default-features = false, features = ["std", "derive"] }
 tempfile = { version = "3.26.0", default-features = false }
-wait-timeout = { version = "0.2.1", default-features = false }
 zstd = { version = "0.13.3", default-features = false, features = ["fat-lto", "pkg-config"] }
 
 [profile.release]

@@ -7,7 +7,6 @@ edition = "2024"
 [dependencies]
 anyhow = { workspace = true  }
 chrono = { workspace = true }
-console = { workspace = true }
 log = { workspace = true }
 nom = { workspace = true }
 notify = { workspace = true }
