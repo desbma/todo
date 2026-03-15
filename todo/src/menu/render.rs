@@ -6,6 +6,7 @@ use crossterm::style::{Attribute, Colored};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
+    prelude::IntoCrossterm as _,
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, HighlightSpacing, List, ListItem, Paragraph},
@@ -304,7 +305,7 @@ fn style_to_ansi_open(style: &Style) -> String {
     }
 
     if let Some(fg) = style.fg {
-        codes.push(format!("{}", Colored::ForegroundColor(fg.into())));
+        codes.push(format!("{}", Colored::ForegroundColor(fg.into_crossterm())));
     }
 
     if codes.is_empty() {
