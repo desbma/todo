@@ -6,7 +6,7 @@ use std::{
     io::{self, BufRead as _, BufReader, BufWriter, Read as _, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::{LazyLock, mpsc},
+    sync::LazyLock,
 };
 
 use chrono::Duration;
@@ -32,6 +32,27 @@ impl TodoFile {
             todo_path: todo_path.canonicalize()?,
             done_path: done_path.canonicalize()?,
         })
+    }
+
+    /// Create a `TodoFile` from the `TODO_FILE` and `DONE_FILE` environment variables
+    pub fn from_env() -> anyhow::Result<Self> {
+        let todotxt_var = env::var_os("TODO_FILE");
+        let todotxt_path = todotxt_var
+            .as_ref()
+            .map(Path::new)
+            .ok_or_else(|| anyhow::anyhow!("TODO_FILE environment variable is not set"))?;
+        let done_var = env::var_os("DONE_FILE");
+        let done_path = done_var
+            .as_ref()
+            .map(Path::new)
+            .ok_or_else(|| anyhow::anyhow!("DONE_FILE environment variable is not set"))?;
+        Self::new(todotxt_path, done_path)
+    }
+
+    /// Return the canonical path to the todo file
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.todo_path
     }
 
     pub fn load_tasks(&self) -> anyhow::Result<Vec<Task>> {
@@ -71,8 +92,8 @@ impl TodoFile {
         Ok(())
     }
 
-    pub fn watch(&self) -> anyhow::Result<(Box<dyn Watcher>, mpsc::Receiver<()>)> {
-        let (event_tx, event_rx) = mpsc::channel();
+    pub fn watch(&self) -> anyhow::Result<(Box<dyn Watcher>, crossbeam_channel::Receiver<()>)> {
+        let (event_tx, event_rx) = crossbeam_channel::bounded(1);
         let todo_path = self.todo_path.clone();
         let mut watcher = Box::new(notify::recommended_watcher(
             move |evt: notify::Result<notify::Event>| {
@@ -83,11 +104,11 @@ impl TodoFile {
                         | notify::EventKind::Modify(_)
                         | notify::EventKind::Remove(_) => {
                             if evt.paths.contains(&todo_path) {
-                                let _ = event_tx.send(());
+                                let _ = event_tx.try_send(());
                             }
                         }
                         _ if evt.need_rescan() => {
-                            let _ = event_tx.send(());
+                            let _ = event_tx.try_send(());
                         }
                         _ => {}
                     }

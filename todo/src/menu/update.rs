@@ -11,7 +11,7 @@ use super::state::{App, Mode, TaskAction};
 pub(crate) enum Msg {
     Key(KeyEvent),
     Resize,
-    TasksFileChanged,
+    TasksFileChanged(Vec<usize>),
     Tick,
 }
 
@@ -143,7 +143,10 @@ fn move_selection(app: &mut App, delta: i32) {
 }
 
 /// Handle a file-changed notification: schedule a debounced reload
-pub(crate) fn handle_file_changed(app: &mut App) {
+pub(crate) fn handle_file_changed(app: &mut App, changed_sources: Vec<usize>) {
+    for idx in changed_sources {
+        app.pending_reload_sources.insert(idx);
+    }
     app.pending_reload_at = Some(Instant::now() + RELOAD_DEBOUNCE);
 }
 

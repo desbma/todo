@@ -47,12 +47,24 @@ fn draw_search_bar(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_task_list(frame: &mut Frame, app: &mut App, area: Rect) {
+    let all = app.all_tasks();
     let items: Vec<ListItem> = app
         .visible
         .iter()
         .filter_map(|idx| app.tasks.get(*idx))
-        .map(|task| {
-            let line = styled_task_line(task, app.today, &app.tasks);
+        .map(|mt| {
+            let extra_tag = if app.multi_source {
+                // Only append if the task doesn't already have this @tag
+                mt.source.display_tag.as_deref().filter(|tag_val| {
+                    !mt.task.tags.iter().any(|t| {
+                        matches!(t.kind(), TagKind::Arobase)
+                            && t.value().eq_ignore_ascii_case(tag_val)
+                    })
+                })
+            } else {
+                None
+            };
+            let line = styled_task_line_with_source(&mt.task, app.today, &all, extra_tag);
             ListItem::new(line)
         })
         .collect();
@@ -112,9 +124,19 @@ fn draw_action_popup(frame: &mut Frame, app: &App) {
     frame.render_widget(popup, popup_area);
 }
 
-/// Build a styled ratatui `Line` for a task, replicating the old color semantics
-#[expect(clippy::too_many_lines)]
+/// Build a styled ratatui `Line` for a task (convenience wrapper for non-menu callers)
 pub(crate) fn styled_task_line<'a>(task: &'a Task, today: Date, all_tasks: &[Task]) -> Line<'a> {
+    styled_task_line_with_source(task, today, all_tasks, None)
+}
+
+/// Build a styled ratatui `Line` for a task, optionally appending a synthetic source tag
+#[expect(clippy::too_many_lines)]
+fn styled_task_line_with_source<'a>(
+    task: &'a Task,
+    today: Date,
+    all_tasks: &[Task],
+    source_tag: Option<&str>,
+) -> Line<'a> {
     let is_completed = matches!(task.status, CreationCompletion::Completed { .. });
     let blocked = !is_completed && task.is_blocked(all_tasks);
     let overdue = task.is_overdue(today);
@@ -168,6 +190,17 @@ pub(crate) fn styled_task_line<'a>(task: &'a Task, today: Date, all_tasks: &[Tas
                 spans.push(Span::raw(" "));
             }
         }
+    }
+
+    // Synthetic source tag (presentation-only, never persisted)
+    if let Some(stag) = source_tag {
+        let style = if not_ready {
+            Style::default()
+        } else {
+            Style::default().fg(Color::Blue)
+        };
+        spans.push(Span::styled(format!("@{stag}"), style));
+        spans.push(Span::raw(" "));
     }
 
     // Tags
