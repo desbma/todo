@@ -380,3 +380,188 @@ fn style_to_ansi_open(style: &Style) -> String {
         format!("\x1b[{}m", codes.join(";"))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use ratatui::{
+        style::{Color, Modifier, Style},
+        text::{Line, Span},
+    };
+    use tasks::Task;
+
+    use super::*;
+
+    fn today() -> Date {
+        chrono::NaiveDate::from_ymd_opt(2026, 3, 18).unwrap()
+    }
+
+    fn parse(s: &str) -> Task {
+        s.parse().unwrap()
+    }
+
+    // --- styled_task_line: priority ---
+
+    #[test]
+    fn priority_a_has_red_fg() {
+        let task = parse("(A) Buy milk");
+        let line = styled_task_line(&task, today(), &[]);
+        let pri_span = &line.spans[0];
+        assert_eq!(pri_span.content.as_ref(), "(A)");
+        assert_eq!(pri_span.style.fg, Some(Color::Red));
+    }
+
+    #[test]
+    fn priority_b_has_orange_fg() {
+        let task = parse("(B) Buy milk");
+        let line = styled_task_line(&task, today(), &[]);
+        let pri_span = &line.spans[0];
+        assert_eq!(pri_span.content.as_ref(), "(B)");
+        assert_eq!(pri_span.style.fg, Some(Color::Indexed(9)));
+    }
+
+    #[test]
+    fn priority_c_has_yellow_fg() {
+        let task = parse("(C) Buy milk");
+        let line = styled_task_line(&task, today(), &[]);
+        let pri_span = &line.spans[0];
+        assert_eq!(pri_span.content.as_ref(), "(C)");
+        assert_eq!(pri_span.style.fg, Some(Color::Yellow));
+    }
+
+    // --- styled_task_line: completed ---
+
+    #[test]
+    fn completed_task_has_dim_and_crossed_out() {
+        let task = parse("x 2026-03-17 Buy milk");
+        let line = styled_task_line(&task, today(), &[]);
+        assert!(line.style.add_modifier.contains(Modifier::DIM));
+        assert!(line.style.add_modifier.contains(Modifier::CROSSED_OUT));
+    }
+
+    // --- styled_task_line: tags ---
+
+    #[test]
+    fn plus_tag_has_cyan_fg() {
+        let task = parse("+project Buy milk");
+        let line = styled_task_line(&task, today(), &[]);
+        let tag_span = line
+            .spans
+            .iter()
+            .find(|s| s.content.starts_with('+'))
+            .unwrap();
+        assert_eq!(tag_span.style.fg, Some(Color::Cyan));
+    }
+
+    #[test]
+    fn hash_tag_has_yellow_fg() {
+        let task = parse("#tag Buy milk");
+        let line = styled_task_line(&task, today(), &[]);
+        let tag_span = line
+            .spans
+            .iter()
+            .find(|s| s.content.starts_with('#'))
+            .unwrap();
+        assert_eq!(tag_span.style.fg, Some(Color::Yellow));
+    }
+
+    #[test]
+    fn arobase_tag_has_blue_fg() {
+        let task = parse("@context Buy milk");
+        let line = styled_task_line(&task, today(), &[]);
+        let tag_span = line
+            .spans
+            .iter()
+            .find(|s| s.content.starts_with('@'))
+            .unwrap();
+        assert_eq!(tag_span.style.fg, Some(Color::Blue));
+    }
+
+    // --- styled_task_line: overdue due ---
+
+    #[test]
+    fn overdue_due_has_magenta_fg() {
+        let task = parse("Buy milk due:2026-03-01");
+        let line = styled_task_line(&task, today(), &[]);
+        let due_span = line
+            .spans
+            .iter()
+            .find(|s| s.content.starts_with("due:"))
+            .unwrap();
+        assert_eq!(due_span.style.fg, Some(Color::Magenta));
+    }
+
+    // --- styled_task_line: blocked ---
+
+    #[test]
+    fn blocked_task_has_italic() {
+        let blocker = parse("Buy milk id:1");
+        let task = parse("Drink milk dep:1");
+        let all = vec![blocker, task.clone()];
+        let line = styled_task_line(&task, today(), &all);
+        assert!(line.style.add_modifier.contains(Modifier::ITALIC));
+    }
+
+    // --- styled_task_line: source tag ---
+
+    #[test]
+    fn source_tag_appended_with_blue() {
+        let task = parse("Buy milk");
+        let line = styled_task_line_with_source(&task, today(), &[], Some("work"));
+        let source_span = line
+            .spans
+            .iter()
+            .find(|s| s.content.as_ref() == "@work")
+            .unwrap();
+        assert_eq!(source_span.style.fg, Some(Color::Blue));
+    }
+
+    // --- line_to_ansi ---
+
+    #[test]
+    fn empty_line_to_ansi() {
+        let line = Line::from(Vec::<Span>::new());
+        assert_eq!(line_to_ansi(&line), "");
+    }
+
+    #[test]
+    fn plain_line_to_ansi() {
+        let line = Line::from(vec![Span::raw("hello")]);
+        assert_eq!(line_to_ansi(&line), "hello");
+    }
+
+    #[test]
+    fn styled_span_produces_ansi_escapes() {
+        let line = Line::from(vec![Span::styled("red", Style::default().fg(Color::Red))]);
+        let ansi = line_to_ansi(&line);
+        assert!(ansi.contains("\x1b["));
+        assert!(ansi.contains("red"));
+    }
+
+    // --- merge_styles ---
+
+    #[test]
+    fn child_fg_overrides_parent() {
+        let parent = Style::default().fg(Color::Red);
+        let child = Style::default().fg(Color::Blue);
+        let merged = merge_styles(&parent, &child);
+        assert_eq!(merged.fg, Some(Color::Blue));
+    }
+
+    #[test]
+    fn child_modifiers_union_with_parent() {
+        let parent = Style::default().add_modifier(Modifier::BOLD);
+        let child = Style::default().add_modifier(Modifier::ITALIC);
+        let merged = merge_styles(&parent, &child);
+        assert!(merged.add_modifier.contains(Modifier::BOLD));
+        assert!(merged.add_modifier.contains(Modifier::ITALIC));
+    }
+
+    #[test]
+    fn empty_child_preserves_parent() {
+        let parent = Style::default().fg(Color::Red).add_modifier(Modifier::BOLD);
+        let child = Style::default();
+        let merged = merge_styles(&parent, &child);
+        assert_eq!(merged.fg, Some(Color::Red));
+        assert!(merged.add_modifier.contains(Modifier::BOLD));
+    }
+}

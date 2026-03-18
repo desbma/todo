@@ -212,3 +212,150 @@ impl App {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{io::Write as _, rc::Rc, time::Instant};
+
+    use tasks::TodoFile;
+
+    use super::*;
+
+    fn today() -> Date {
+        chrono::NaiveDate::from_ymd_opt(2026, 3, 18).unwrap()
+    }
+
+    fn make_source() -> Rc<MenuSource> {
+        let mut todo = tempfile::NamedTempFile::new().unwrap();
+        let mut done = tempfile::NamedTempFile::new().unwrap();
+        writeln!(todo, "placeholder").unwrap();
+        writeln!(done, "placeholder").unwrap();
+        Rc::new(MenuSource::new(
+            TodoFile::new(todo.path(), done.path()).unwrap(),
+            None,
+        ))
+    }
+
+    fn make_tasks(lines: &[&str]) -> Vec<MenuTask> {
+        let source = make_source();
+        lines
+            .iter()
+            .map(|l| MenuTask {
+                task: l.parse().unwrap(),
+                source: Rc::clone(&source),
+            })
+            .collect()
+    }
+
+    // --- App::new ---
+
+    #[test]
+    fn new_populates_visible_and_selects_first() {
+        let app = App::new(make_tasks(&["Task A", "Task B"]), today(), false);
+        assert_eq!(app.visible, vec![0, 1]);
+        assert_eq!(app.list_state.selected(), Some(0));
+    }
+
+    #[test]
+    fn new_empty_list_no_selection() {
+        let app = App::new(Vec::new(), today(), false);
+        assert!(app.visible.is_empty());
+        assert_eq!(app.list_state.selected(), None);
+    }
+
+    // --- refilter ---
+
+    #[test]
+    fn refilter_empty_query_shows_all() {
+        let mut app = App::new(make_tasks(&["Buy milk", "Walk dog"]), today(), false);
+        app.query.clear();
+        app.refilter();
+        assert_eq!(app.visible.len(), 2);
+    }
+
+    #[test]
+    fn refilter_narrows_results() {
+        let mut app = App::new(make_tasks(&["Buy milk", "Walk dog"]), today(), false);
+        app.query = "milk".to_owned();
+        app.refilter();
+        assert_eq!(app.visible.len(), 1);
+        assert_eq!(app.tasks[app.visible[0]].task.text, "Buy milk");
+    }
+
+    #[test]
+    fn refilter_no_match_clears_selection() {
+        let mut app = App::new(make_tasks(&["Buy milk"]), today(), false);
+        app.query = "zzzzzzz".to_owned();
+        app.refilter();
+        assert!(app.visible.is_empty());
+        assert_eq!(app.list_state.selected(), None);
+    }
+
+    #[test]
+    fn refilter_clamps_selection() {
+        let mut app = App::new(
+            make_tasks(&["Buy milk", "Walk dog", "Cook dinner"]),
+            today(),
+            false,
+        );
+        app.list_state.select(Some(2));
+        // Filter to fewer items → selection should clamp
+        app.query = "milk".to_owned();
+        app.refilter();
+        assert!(app.list_state.selected().unwrap() < app.visible.len());
+    }
+
+    // --- selected_task ---
+
+    #[test]
+    fn selected_task_returns_correct_task() {
+        let app = App::new(make_tasks(&["Buy milk", "Walk dog"]), today(), false);
+        let task = app.selected_task().unwrap();
+        assert_eq!(task.text, "Buy milk");
+    }
+
+    #[test]
+    fn selected_task_none_when_empty() {
+        let app = App::new(Vec::new(), today(), false);
+        assert!(app.selected_task().is_none());
+    }
+
+    // --- reload_tasks ---
+
+    #[test]
+    fn reload_tasks_updates_and_refilters() {
+        let mut app = App::new(make_tasks(&["Buy milk"]), today(), false);
+        app.reload_tasks(make_tasks(&["Walk dog", "Cook dinner", "Read book"]));
+        assert_eq!(app.tasks.len(), 3);
+        assert_eq!(app.visible.len(), 3);
+    }
+
+    // --- set_toast / expire_toast ---
+
+    #[test]
+    fn set_toast_sets_message() {
+        let mut app = App::new(Vec::new(), today(), false);
+        app.set_toast("Done!".to_owned());
+        assert!(app.toast.is_some());
+        assert_eq!(app.toast.as_ref().unwrap().0, "Done!");
+    }
+
+    #[test]
+    fn expire_toast_false_before_expiry() {
+        let mut app = App::new(Vec::new(), today(), false);
+        app.set_toast("Done!".to_owned());
+        assert!(!app.expire_toast());
+        assert!(app.toast.is_some());
+    }
+
+    #[test]
+    fn expire_toast_true_after_expiry() {
+        let mut app = App::new(Vec::new(), today(), false);
+        app.toast = Some((
+            "old".to_owned(),
+            Instant::now().checked_sub(Duration::from_secs(1)).unwrap(),
+        ));
+        assert!(app.expire_toast());
+        assert!(app.toast.is_none());
+    }
+}

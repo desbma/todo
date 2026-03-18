@@ -18,6 +18,7 @@ pub(crate) enum Msg {
 const RELOAD_DEBOUNCE: Duration = Duration::from_millis(200);
 
 /// Side effects produced by state transitions
+#[cfg_attr(test, derive(Debug, Eq, PartialEq))]
 pub(crate) enum Effect {
     None,
     ReloadTasks,
@@ -170,4 +171,280 @@ pub(crate) fn handle_tick(app: &mut App) -> Effect {
     }
 
     Effect::None
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{io::Write as _, rc::Rc, time::Instant};
+
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use tasks::TodoFile;
+
+    use super::*;
+    use crate::menu::state::{MenuSource, MenuTask, Mode, TaskAction};
+
+    fn today() -> tasks::Date {
+        chrono::NaiveDate::from_ymd_opt(2026, 3, 18).unwrap()
+    }
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn ctrl(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+    }
+
+    fn make_source() -> Rc<MenuSource> {
+        let mut todo = tempfile::NamedTempFile::new().unwrap();
+        let mut done = tempfile::NamedTempFile::new().unwrap();
+        writeln!(todo, "placeholder").unwrap();
+        writeln!(done, "placeholder").unwrap();
+        Rc::new(MenuSource::new(
+            TodoFile::new(todo.path(), done.path()).unwrap(),
+            None,
+        ))
+    }
+
+    fn make_app(lines: &[&str]) -> App {
+        let source = make_source();
+        let tasks = lines
+            .iter()
+            .map(|l| MenuTask {
+                task: l.parse().unwrap(),
+                source: Rc::clone(&source),
+            })
+            .collect();
+        App::new(tasks, today(), false)
+    }
+
+    // --- Normal mode: Esc ---
+
+    #[test]
+    fn esc_empty_query_quits() {
+        let mut app = make_app(&["Buy milk"]);
+        let effect = handle_key(&mut app, key(KeyCode::Esc));
+        assert_eq!(effect, Effect::Quit);
+        assert!(app.should_quit);
+    }
+
+    #[test]
+    fn esc_nonempty_query_clears() {
+        let mut app = make_app(&["Buy milk"]);
+        app.query = "milk".to_owned();
+        app.refilter();
+
+        let effect = handle_key(&mut app, key(KeyCode::Esc));
+        assert_eq!(effect, Effect::None);
+        assert!(app.query.is_empty());
+    }
+
+    // --- Normal mode: Ctrl+C ---
+
+    #[test]
+    fn ctrl_c_quits() {
+        let mut app = make_app(&["Buy milk"]);
+        let effect = handle_key(&mut app, ctrl('c'));
+        assert_eq!(effect, Effect::Quit);
+        assert!(app.should_quit);
+    }
+
+    // --- Normal mode: Enter ---
+
+    #[test]
+    fn enter_with_selection_opens_popup() {
+        let mut app = make_app(&["Buy milk"]);
+        let effect = handle_key(&mut app, key(KeyCode::Enter));
+        assert_eq!(effect, Effect::None);
+        assert_eq!(app.mode, Mode::ActionPopup);
+        assert_eq!(app.action_index, 0);
+    }
+
+    #[test]
+    fn enter_without_selection_noop() {
+        let mut app = make_app(&[]);
+        let effect = handle_key(&mut app, key(KeyCode::Enter));
+        assert_eq!(effect, Effect::None);
+        assert_eq!(app.mode, Mode::Normal);
+    }
+
+    // --- Normal mode: navigation ---
+
+    #[test]
+    fn down_moves_selection() {
+        let mut app = make_app(&["Task A", "Task B", "Task C"]);
+        assert_eq!(app.list_state.selected(), Some(0));
+
+        handle_key(&mut app, key(KeyCode::Down));
+        assert_eq!(app.list_state.selected(), Some(1));
+    }
+
+    #[test]
+    fn up_at_top_stays() {
+        let mut app = make_app(&["Task A", "Task B"]);
+        assert_eq!(app.list_state.selected(), Some(0));
+
+        handle_key(&mut app, key(KeyCode::Up));
+        assert_eq!(app.list_state.selected(), Some(0));
+    }
+
+    #[test]
+    fn j_moves_down() {
+        let mut app = make_app(&["Task A", "Task B"]);
+        handle_key(&mut app, key(KeyCode::Char('j')));
+        assert_eq!(app.list_state.selected(), Some(1));
+    }
+
+    #[test]
+    fn k_moves_up() {
+        let mut app = make_app(&["Task A", "Task B"]);
+        handle_key(&mut app, key(KeyCode::Down));
+        handle_key(&mut app, key(KeyCode::Char('k')));
+        assert_eq!(app.list_state.selected(), Some(0));
+    }
+
+    #[test]
+    fn home_jumps_to_first() {
+        let mut app = make_app(&["Task A", "Task B", "Task C"]);
+        handle_key(&mut app, key(KeyCode::End));
+        handle_key(&mut app, key(KeyCode::Home));
+        assert_eq!(app.list_state.selected(), Some(0));
+    }
+
+    #[test]
+    fn end_jumps_to_last() {
+        let mut app = make_app(&["Task A", "Task B", "Task C"]);
+        handle_key(&mut app, key(KeyCode::End));
+        assert_eq!(app.list_state.selected(), Some(2));
+    }
+
+    // --- Normal mode: typing ---
+
+    #[test]
+    fn char_appends_to_query() {
+        let mut app = make_app(&["Buy milk"]);
+        handle_key(&mut app, key(KeyCode::Char('m')));
+        assert_eq!(app.query, "m");
+    }
+
+    #[test]
+    fn backspace_pops_from_query() {
+        let mut app = make_app(&["Buy milk"]);
+        app.query = "mi".to_owned();
+        handle_key(&mut app, key(KeyCode::Backspace));
+        assert_eq!(app.query, "m");
+    }
+
+    // --- ActionPopup mode ---
+
+    #[test]
+    fn popup_esc_returns_to_normal() {
+        let mut app = make_app(&["Buy milk"]);
+        app.mode = Mode::ActionPopup;
+
+        let effect = handle_key(&mut app, key(KeyCode::Esc));
+        assert_eq!(effect, Effect::None);
+        assert_eq!(app.mode, Mode::Normal);
+    }
+
+    #[test]
+    fn popup_up_down_moves_action_index() {
+        let mut app = make_app(&["Buy milk"]);
+        app.mode = Mode::ActionPopup;
+        app.action_index = 0;
+
+        handle_key(&mut app, key(KeyCode::Down));
+        assert_eq!(app.action_index, 1);
+
+        handle_key(&mut app, key(KeyCode::Up));
+        assert_eq!(app.action_index, 0);
+    }
+
+    #[test]
+    fn popup_up_at_zero_stays() {
+        let mut app = make_app(&["Buy milk"]);
+        app.mode = Mode::ActionPopup;
+        app.action_index = 0;
+
+        handle_key(&mut app, key(KeyCode::Up));
+        assert_eq!(app.action_index, 0);
+    }
+
+    #[test]
+    fn popup_down_clamps_at_max() {
+        let mut app = make_app(&["Buy milk"]);
+        app.mode = Mode::ActionPopup;
+        app.action_index = TaskAction::COUNT - 1;
+
+        handle_key(&mut app, key(KeyCode::Down));
+        assert_eq!(app.action_index, TaskAction::COUNT - 1);
+    }
+
+    #[test]
+    fn popup_enter_performs_action() {
+        let mut app = make_app(&["Buy milk"]);
+        app.mode = Mode::ActionPopup;
+        app.action_index = 1; // Edit
+
+        let effect = handle_key(&mut app, key(KeyCode::Enter));
+        assert_eq!(effect, Effect::PerformAction(TaskAction::Edit));
+        assert_eq!(app.mode, Mode::Normal);
+    }
+
+    #[test]
+    fn popup_ctrl_c_quits() {
+        let mut app = make_app(&["Buy milk"]);
+        app.mode = Mode::ActionPopup;
+
+        let effect = handle_key(&mut app, ctrl('c'));
+        assert_eq!(effect, Effect::Quit);
+    }
+
+    // --- handle_file_changed ---
+
+    #[test]
+    fn file_changed_inserts_sources_and_sets_deadline() {
+        let mut app = make_app(&["Buy milk"]);
+        assert!(app.pending_reload_at.is_none());
+
+        handle_file_changed(&mut app, vec![0, 2]);
+        assert!(app.pending_reload_at.is_some());
+        assert!(app.pending_reload_sources.contains(&0));
+        assert!(app.pending_reload_sources.contains(&2));
+    }
+
+    // --- handle_tick ---
+
+    #[test]
+    fn tick_past_deadline_reloads() {
+        let mut app = make_app(&["Buy milk"]);
+        app.pending_reload_at = Instant::now().checked_sub(Duration::from_millis(1));
+
+        let effect = handle_tick(&mut app);
+        assert_eq!(effect, Effect::ReloadTasks);
+        assert!(app.pending_reload_at.is_none());
+    }
+
+    #[test]
+    fn tick_before_deadline_no_reload() {
+        let mut app = make_app(&["Buy milk"]);
+        app.pending_reload_at = Some(Instant::now() + Duration::from_secs(60));
+
+        let effect = handle_tick(&mut app);
+        assert_eq!(effect, Effect::None);
+        assert!(app.pending_reload_at.is_some());
+    }
+
+    #[test]
+    fn tick_clears_expired_toast() {
+        let mut app = make_app(&["Buy milk"]);
+        app.toast = Some((
+            "hello".to_owned(),
+            Instant::now().checked_sub(Duration::from_secs(1)).unwrap(),
+        ));
+
+        let effect = handle_tick(&mut app);
+        assert_eq!(effect, Effect::None);
+        assert!(app.toast.is_none());
+    }
 }
