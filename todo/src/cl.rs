@@ -4,32 +4,64 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
+/// todo.txt files to use, if not set use `TODO_FILE` env var
+#[derive(clap::Args, Debug)]
+pub(crate) struct Files {
+    pub files: Vec<PathBuf>,
+}
+
 #[derive(Parser, Debug)]
 #[command(version, about)]
 pub(crate) enum Action {
     /// Add new task
-    Add { args: Vec<String> },
+    Add {
+        /// todo.txt file to use, if not set use `TODO_FILE` env var
+        #[arg(short, long)]
+        file: Option<PathBuf>,
+        args: Vec<String>,
+    },
     /// Auto archive and auto create recurring tasks if needed
-    Auto,
+    Auto {
+        #[command(flatten)]
+        files: Files,
+    },
     /// List all tasks, ordered by urgency
-    List,
+    List {
+        #[command(flatten)]
+        files: Files,
+    },
     /// Interactive task menu
     Menu {
-        /// todo.txt files to use, if not set use `TODO_FILE` env var
-        files: Vec<PathBuf>,
+        #[command(flatten)]
+        files: Files,
     },
     /// Get most urgent task
     Next {
         /// Short output
         #[arg(short, long, default_value_t = false)]
         simple: bool,
+        #[command(flatten)]
+        files: Files,
     },
     /// Send notification for overdue tasks
-    NotifyOverdue,
+    NotifyOverdue {
+        #[command(flatten)]
+        files: Files,
+    },
     /// Get pending task count
-    PendingCount,
+    PendingCount {
+        #[command(flatten)]
+        files: Files,
+    },
     /// Get tasks created or done in the most recent days
-    Report { days: usize },
+    Report {
+        days: usize,
+        #[command(flatten)]
+        files: Files,
+    },
     /// Undo last action
-    Undo,
+    Undo {
+        #[command(flatten)]
+        files: Files,
+    },
 }
