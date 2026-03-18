@@ -446,6 +446,7 @@ impl TodoFile {
 }
 
 #[cfg(test)]
+#[expect(clippy::shadow_unrelated)]
 mod tests {
     use std::io::Write as _;
 
@@ -496,5 +497,528 @@ mod tests {
                 }
             ]
         );
+    }
+
+    fn date(y: i32, m: u32, d: u32) -> Date {
+        Date::from_ymd_opt(y, m, d).unwrap()
+    }
+
+    fn todotxtfiles_with_done(
+        todo_lines: &[&str],
+        done_lines: &[&str],
+    ) -> (NamedTempFile, NamedTempFile) {
+        let mut todo_file = NamedTempFile::new().unwrap();
+        for line in todo_lines {
+            writeln!(todo_file, "{line}").unwrap();
+        }
+        let mut done_file = NamedTempFile::new().unwrap();
+        for line in done_lines {
+            writeln!(done_file, "{line}").unwrap();
+        }
+        (todo_file, done_file)
+    }
+
+    #[test]
+    fn new_nonexistent_todo_path() {
+        let done_file = NamedTempFile::new().unwrap();
+        assert!(TodoFile::new(Path::new("/nonexistent/todo.txt"), done_file.path()).is_err());
+    }
+
+    #[test]
+    fn new_nonexistent_done_path() {
+        let todo_file = NamedTempFile::new().unwrap();
+        assert!(TodoFile::new(todo_file.path(), Path::new("/nonexistent/done.txt")).is_err());
+    }
+
+    #[test]
+    fn load_tasks_with_completed() {
+        let (todo_file, done_file) =
+            todotxtfiles(&["x 2024-01-15 2024-01-10 completed task pri:A"]);
+        let tasks = TodoFile::new(todo_file.path(), done_file.path())
+            .unwrap()
+            .load_tasks()
+            .unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(
+            tasks[0].status,
+            CreationCompletion::Completed {
+                created: Some(date(2024, 1, 10)),
+                completed: date(2024, 1, 15),
+            }
+        );
+    }
+
+    #[test]
+    fn load_tasks_blank_lines_parsed_as_tasks() {
+        let (todo_file, done_file) = todotxtfiles(&["task one", "", "task two"]);
+        let tasks = TodoFile::new(todo_file.path(), done_file.path())
+            .unwrap()
+            .load_tasks()
+            .unwrap();
+        assert_eq!(tasks.len(), 3);
+        assert_eq!(tasks[0].index, Some(0));
+        assert_eq!(tasks[1].text, "");
+        assert_eq!(tasks[1].index, Some(1));
+        assert_eq!(tasks[2].index, Some(2));
+    }
+
+    #[test]
+    fn save_tasks_roundtrip() {
+        let (todo_file, done_file) =
+            todotxtfiles(&["(A) 2024-03-01 important task", "simple task"]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        let tasks = tf.load_tasks().unwrap();
+        tf.save_tasks(tasks.clone()).unwrap();
+        let reloaded = tf.load_tasks().unwrap();
+        assert_eq!(tasks, reloaded);
+    }
+
+    #[test]
+    fn save_tasks_overwrites() {
+        let (todo_file, done_file) = todotxtfiles(&["old task"]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        let new_tasks = vec![Task {
+            text: "new task".to_owned(),
+            ..Task::default()
+        }];
+        tf.save_tasks(new_tasks).unwrap();
+        let loaded = tf.load_tasks().unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].text, "new task");
+    }
+
+    #[test]
+    fn save_empty_tasks() {
+        let (todo_file, done_file) = todotxtfiles(&["old task"]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        tf.save_tasks(vec![]).unwrap();
+        assert_eq!(tf.load_tasks().unwrap(), vec![]);
+    }
+
+    #[test]
+    fn add_task_sets_created_date() {
+        let (todo_file, done_file) = todotxtfiles(&[]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        let task = Task {
+            text: "new task".to_owned(),
+            ..Task::default()
+        };
+        let today = date(2024, 6, 15);
+        tf.add_task(task, today).unwrap();
+        let tasks = tf.load_tasks().unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(
+            tasks[0].status,
+            CreationCompletion::Pending {
+                created: Some(today),
+            }
+        );
+    }
+
+    #[test]
+    fn add_task_preserves_existing_created_date() {
+        let (todo_file, done_file) = todotxtfiles(&[]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        let created = date(2024, 1, 1);
+        let task = Task {
+            text: "old task".to_owned(),
+            status: CreationCompletion::Pending {
+                created: Some(created),
+            },
+            ..Task::default()
+        };
+        tf.add_task(task, date(2024, 6, 15)).unwrap();
+        let tasks = tf.load_tasks().unwrap();
+        assert_eq!(
+            tasks[0].status,
+            CreationCompletion::Pending {
+                created: Some(created),
+            }
+        );
+    }
+
+    #[test]
+    fn add_task_appends_to_existing() {
+        let (todo_file, done_file) = todotxtfiles(&["existing task"]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        let task = Task {
+            text: "another task".to_owned(),
+            ..Task::default()
+        };
+        tf.add_task(task, date(2024, 6, 15)).unwrap();
+        let tasks = tf.load_tasks().unwrap();
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0].text, "existing task");
+        assert_eq!(tasks[1].text, "another task");
+    }
+
+    #[test]
+    fn start_sets_started_attribute() {
+        let (todo_file, done_file) = todotxtfiles(&["task to start"]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        let tasks = tf.load_tasks().unwrap();
+        let today = date(2024, 6, 15);
+        tf.start(&tasks[0], today).unwrap();
+        let tasks = tf.load_tasks().unwrap();
+        assert_eq!(tasks[0].started_date(), Some(today));
+    }
+
+    #[test]
+    fn start_preserves_other_tasks() {
+        let (todo_file, done_file) = todotxtfiles(&["first task", "second task"]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        let tasks = tf.load_tasks().unwrap();
+        tf.start(&tasks[0], date(2024, 6, 15)).unwrap();
+        let tasks = tf.load_tasks().unwrap();
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[1].text, "second task");
+        assert!(tasks[1].started_date().is_none());
+    }
+
+    #[test]
+    fn set_done_removes_from_pending_and_appends_completed() {
+        let (todo_file, done_file) = todotxtfiles(&["task one", "task two", "task three"]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        let tasks = tf.load_tasks().unwrap();
+        let today = date(2024, 6, 15);
+        tf.set_done(tasks[1].clone(), today).unwrap();
+        let tasks = tf.load_tasks().unwrap();
+        assert_eq!(tasks.len(), 3);
+        assert_eq!(tasks[0].text, "task one");
+        assert_eq!(tasks[1].text, "task three");
+        assert_eq!(tasks[2].text, "task two");
+        assert_eq!(
+            tasks[2].status,
+            CreationCompletion::Completed {
+                created: None,
+                completed: today,
+            }
+        );
+    }
+
+    #[test]
+    fn set_done_with_recurrence_creates_new_task() {
+        let (todo_file, done_file) = todotxtfiles(&["task with recurrence due:2024-06-15 rec:+7d"]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        let tasks = tf.load_tasks().unwrap();
+        let today = date(2024, 6, 15);
+        tf.set_done(tasks[0].clone(), today).unwrap();
+        let tasks = tf.load_tasks().unwrap();
+        assert_eq!(tasks.len(), 2);
+        assert!(matches!(
+            tasks[0].status,
+            CreationCompletion::Completed { .. }
+        ));
+        assert!(matches!(
+            tasks[1].status,
+            CreationCompletion::Pending { .. }
+        ));
+        assert_eq!(tasks[1].due_date(), Some(date(2024, 6, 22)));
+    }
+
+    #[test]
+    fn auto_archive_moves_old_completed_tasks() {
+        let today = date(2024, 6, 15);
+        let old_completed = "x 2024-06-12 2024-06-10 old done task".to_owned();
+        let recent_completed = "x 2024-06-14 2024-06-13 recent done task".to_owned();
+        let (todo_file, done_file) =
+            todotxtfiles(&[&old_completed, &recent_completed, "pending task"]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        let mut tasks = tf.load_tasks().unwrap();
+        let archived = tf.auto_archive(&mut tasks, today).unwrap();
+        assert_eq!(archived, 1);
+        assert_eq!(tasks.len(), 2);
+        assert!(tasks.iter().all(|t| t.text != "old done task"));
+
+        let done_content = fs::read_to_string(done_file.path()).unwrap();
+        assert!(done_content.contains("old done task"));
+    }
+
+    #[test]
+    fn auto_archive_no_tasks_to_archive() {
+        let today = date(2024, 6, 15);
+        let (todo_file, done_file) = todotxtfiles(&["pending task"]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        let mut tasks = tf.load_tasks().unwrap();
+        let archived = tf.auto_archive(&mut tasks, today).unwrap();
+        assert_eq!(archived, 0);
+        assert_eq!(tasks.len(), 1);
+    }
+
+    #[test]
+    fn auto_archive_completed_exactly_at_threshold_is_archived() {
+        let today = date(2024, 6, 15);
+        let exactly_threshold = "x 2024-06-13 2024-06-12 threshold task";
+        let (todo_file, done_file) = todotxtfiles(&[exactly_threshold]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        let mut tasks = tf.load_tasks().unwrap();
+        let archived = tf.auto_archive(&mut tasks, today).unwrap();
+        assert_eq!(archived, 1);
+        assert!(tasks.is_empty());
+    }
+
+    #[test]
+    fn auto_archive_completed_one_day_before_threshold_not_archived() {
+        let today = date(2024, 6, 15);
+        let just_under = "x 2024-06-14 2024-06-13 not yet task";
+        let (todo_file, done_file) = todotxtfiles(&[just_under]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        let mut tasks = tf.load_tasks().unwrap();
+        let archived = tf.auto_archive(&mut tasks, today).unwrap();
+        assert_eq!(archived, 0);
+        assert_eq!(tasks.len(), 1);
+    }
+
+    #[test]
+    fn auto_recur_creates_pending_for_completed_recurring_task() {
+        let mut tasks: Vec<Task> = vec![
+            "x 2024-06-15 2024-06-10 recurring task due:2024-06-15 rec:+7d"
+                .parse()
+                .unwrap(),
+        ];
+        let count = TodoFile::auto_recur(&mut tasks);
+        assert_eq!(count, 1);
+        assert_eq!(tasks.len(), 2);
+        assert!(matches!(
+            tasks[1].status,
+            CreationCompletion::Pending { .. }
+        ));
+    }
+
+    #[test]
+    fn auto_recur_does_not_duplicate_if_pending_exists() {
+        let mut tasks: Vec<Task> = vec![
+            "x 2024-06-15 2024-06-10 recurring task due:2024-06-15 rec:+7d"
+                .parse()
+                .unwrap(),
+            "2024-06-15 recurring task due:2024-06-22 rec:+7d"
+                .parse()
+                .unwrap(),
+        ];
+        let count = TodoFile::auto_recur(&mut tasks);
+        assert_eq!(count, 0);
+        assert_eq!(tasks.len(), 2);
+    }
+
+    #[test]
+    fn auto_recur_no_recurring_tasks() {
+        let mut tasks: Vec<Task> = vec!["plain task".parse().unwrap()];
+        let count = TodoFile::auto_recur(&mut tasks);
+        assert_eq!(count, 0);
+        assert_eq!(tasks.len(), 1);
+    }
+
+    #[test]
+    fn auto_recur_pending_recurring_task_not_recreated() {
+        let mut tasks: Vec<Task> = vec!["pending task due:2024-06-15 rec:+7d".parse().unwrap()];
+        let count = TodoFile::auto_recur(&mut tasks);
+        assert_eq!(count, 0);
+        assert_eq!(tasks.len(), 1);
+    }
+
+    #[test]
+    fn backup_creates_backup_file() {
+        let (todo_file, done_file) = todotxtfiles(&["task to backup"]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        tf.backup().unwrap();
+        let backup_path = todo_file.path().with_file_name(format!(
+            "{}.bak.1",
+            todo_file.path().file_name().unwrap().to_string_lossy(),
+        ));
+        assert!(backup_path.exists());
+        assert_eq!(
+            fs::read_to_string(&backup_path).unwrap(),
+            fs::read_to_string(todo_file.path()).unwrap()
+        );
+    }
+
+    #[test]
+    fn backup_rotates_history() {
+        let (todo_file, done_file) = todotxtfiles(&["v1"]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+
+        tf.backup().unwrap();
+
+        fs::write(todo_file.path(), "v2\n").unwrap();
+        tf.backup().unwrap();
+
+        fs::write(todo_file.path(), "v3\n").unwrap();
+        tf.backup().unwrap();
+
+        let bak1 = todo_file.path().with_file_name(format!(
+            "{}.bak.1",
+            todo_file.path().file_name().unwrap().to_string_lossy(),
+        ));
+        let bak2 = todo_file.path().with_file_name(format!(
+            "{}.bak.2",
+            todo_file.path().file_name().unwrap().to_string_lossy(),
+        ));
+        let bak3 = todo_file.path().with_file_name(format!(
+            "{}.bak.3",
+            todo_file.path().file_name().unwrap().to_string_lossy(),
+        ));
+        assert_eq!(fs::read_to_string(&bak1).unwrap(), "v3\n");
+        assert_eq!(fs::read_to_string(&bak2).unwrap(), "v2\n");
+        assert_eq!(fs::read_to_string(&bak3).unwrap(), "v1\n");
+    }
+
+    #[test]
+    fn backup_skips_rotation_when_destination_has_same_content() {
+        let (todo_file, done_file) = todotxtfiles(&["same content"]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+
+        let bak_name = |i| {
+            todo_file.path().with_file_name(format!(
+                "{}.bak.{i}",
+                todo_file.path().file_name().unwrap().to_string_lossy(),
+            ))
+        };
+
+        // Pre-fill all backup slots with identical content
+        for i in 1..=UNDO_HISTORY_LEN {
+            fs::write(bak_name(i), "same content\n").unwrap();
+        }
+
+        tf.backup().unwrap();
+
+        // All slots still have the same content and none were rotated past the limit
+        for i in 1..=UNDO_HISTORY_LEN {
+            assert!(bak_name(i).exists());
+            assert_eq!(fs::read_to_string(bak_name(i)).unwrap(), "same content\n");
+        }
+        assert!(!bak_name(UNDO_HISTORY_LEN + 1).exists());
+    }
+
+    #[test]
+    fn undo_restores_backup() {
+        let (todo_file, done_file) = todotxtfiles(&["original"]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+
+        tf.backup().unwrap();
+        fs::write(todo_file.path(), "modified\n").unwrap();
+
+        tf.undo().unwrap();
+        assert_eq!(fs::read_to_string(todo_file.path()).unwrap(), "original\n");
+    }
+
+    #[test]
+    fn undo_shifts_backup_indices() {
+        let (todo_file, done_file) = todotxtfiles(&["v1"]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+
+        tf.backup().unwrap();
+        fs::write(todo_file.path(), "v2\n").unwrap();
+        tf.backup().unwrap();
+        fs::write(todo_file.path(), "v3\n").unwrap();
+
+        tf.undo().unwrap();
+        assert_eq!(fs::read_to_string(todo_file.path()).unwrap(), "v2\n");
+
+        let bak1 = todo_file.path().with_file_name(format!(
+            "{}.bak.1",
+            todo_file.path().file_name().unwrap().to_string_lossy(),
+        ));
+        assert_eq!(fs::read_to_string(&bak1).unwrap(), "v1\n");
+    }
+
+    #[test]
+    fn undo_with_no_backup_is_noop() {
+        let (todo_file, done_file) = todotxtfiles(&["content"]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        tf.undo().unwrap();
+        assert_eq!(fs::read_to_string(todo_file.path()).unwrap(), "content\n");
+    }
+
+    #[test]
+    fn filter_all_from_both_files() {
+        let (todo_file, done_file) = todotxtfiles_with_done(
+            &["(A) pending task"],
+            &["x 2024-06-15 2024-06-10 done task"],
+        );
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        let all = tf.filter_all(|_| true).unwrap();
+        assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn filter_all_filters_correctly() {
+        let (todo_file, done_file) = todotxtfiles_with_done(
+            &["(A) high prio", "(C) low prio"],
+            &["x 2024-06-15 done task"],
+        );
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        let filtered = tf
+            .filter_all(|t| matches!(t.status, CreationCompletion::Pending { .. }))
+            .unwrap();
+        assert_eq!(filtered.len(), 2);
+        assert!(
+            filtered
+                .iter()
+                .all(|t| matches!(t.status, CreationCompletion::Pending { .. }))
+        );
+    }
+
+    #[test]
+    fn filter_all_empty_files() {
+        let (todo_file, done_file) = todotxtfiles_with_done(&[], &[]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        let all = tf.filter_all(|_| true).unwrap();
+        assert_eq!(all, vec![]);
+    }
+
+    #[test]
+    fn filter_all_matching_none() {
+        let (todo_file, done_file) = todotxtfiles_with_done(&["task one"], &["x 2024-06-15 done"]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        let filtered = tf.filter_all(|_| false).unwrap();
+        assert_eq!(filtered, vec![]);
+    }
+
+    #[test]
+    fn save_then_load_preserves_attributes() {
+        let (todo_file, done_file) =
+            todotxtfiles(&["(B) 2024-01-01 +project task text due:2024-12-31 t:2024-06-01"]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        let tasks = tf.load_tasks().unwrap();
+        tf.save_tasks(tasks.clone()).unwrap();
+        let reloaded = tf.load_tasks().unwrap();
+        assert_eq!(tasks, reloaded);
+    }
+
+    #[test]
+    fn save_creates_backup() {
+        let (todo_file, done_file) = todotxtfiles(&["original task"]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        tf.save_tasks(vec![Task {
+            text: "new task".to_owned(),
+            ..Task::default()
+        }])
+        .unwrap();
+        let backup_path = todo_file.path().with_file_name(format!(
+            "{}.bak.1",
+            todo_file.path().file_name().unwrap().to_string_lossy(),
+        ));
+        assert!(backup_path.exists());
+        let backup_content = fs::read_to_string(&backup_path).unwrap();
+        assert!(backup_content.contains("original task"));
+    }
+
+    #[test]
+    fn add_task_creates_backup() {
+        let (todo_file, done_file) = todotxtfiles(&["existing task"]);
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        tf.add_task(
+            Task {
+                text: "new".to_owned(),
+                ..Task::default()
+            },
+            date(2024, 6, 15),
+        )
+        .unwrap();
+        let backup_path = todo_file.path().with_file_name(format!(
+            "{}.bak.1",
+            todo_file.path().file_name().unwrap().to_string_lossy(),
+        ));
+        assert!(backup_path.exists());
     }
 }
