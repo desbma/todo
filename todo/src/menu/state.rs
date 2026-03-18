@@ -1,9 +1,15 @@
 //! Menu TUI state
 
-use std::time::Instant;
+use std::{
+    collections::HashSet,
+    rc::Rc,
+    time::{Duration, Instant},
+};
 
 use ratatui::widgets::ListState;
-use tasks::{Date, Task};
+use tasks::{Date, Task, TodoFile};
+
+const TOAST_DURATION: Duration = Duration::from_secs(5);
 
 /// Active interaction mode
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -32,8 +38,30 @@ impl TaskAction {
     }
 }
 
+/// A source todo file with display metadata
+pub(crate) struct MenuSource {
+    pub todo_file: TodoFile,
+    pub display_tag: Option<String>,
+}
+
+impl MenuSource {
+    #[must_use]
+    pub(crate) fn new(todo_file: TodoFile, display_tag: Option<String>) -> Self {
+        Self {
+            todo_file,
+            display_tag,
+        }
+    }
+}
+
+/// A task annotated with its owning source
+pub(crate) struct MenuTask {
+    pub task: Task,
+    pub source: Rc<MenuSource>,
+}
+
 pub(crate) struct App {
-    pub tasks: Vec<Task>,
+    pub tasks: Vec<MenuTask>,
     pub visible: Vec<usize>,
     pub query: String,
     pub list_state: ListState,
@@ -42,11 +70,16 @@ pub(crate) struct App {
     pub today: Date,
     pub should_quit: bool,
     pub pending_reload_at: Option<Instant>,
-    pub status_message: Option<String>,
+    /// Source indices that changed since the last reload
+    pub pending_reload_sources: HashSet<usize>,
+    /// Transient toast notification (message, expiry time)
+    pub toast: Option<(String, Instant)>,
+    /// Whether we are operating in multi-source mode
+    pub multi_source: bool,
 }
 
 impl App {
-    pub(crate) fn new(tasks: Vec<Task>, today: Date) -> Self {
+    pub(crate) fn new(tasks: Vec<MenuTask>, today: Date, multi_source: bool) -> Self {
         let mut app = Self {
             tasks,
             visible: Vec::new(),
@@ -57,7 +90,9 @@ impl App {
             today,
             should_quit: false,
             pending_reload_at: None,
-            status_message: None,
+            pending_reload_sources: HashSet::new(),
+            toast: None,
+            multi_source,
         };
         app.refilter();
         if !app.visible.is_empty() {
@@ -68,11 +103,21 @@ impl App {
 
     /// Currently selected task (if any)
     pub(crate) fn selected_task(&self) -> Option<&Task> {
+        self.selected_menu_task().map(|mt| &mt.task)
+    }
+
+    /// Currently selected menu task with source (if any)
+    pub(crate) fn selected_menu_task(&self) -> Option<&MenuTask> {
         let idx = self
             .list_state
             .selected()
             .and_then(|i| self.visible.get(i))?;
         self.tasks.get(*idx)
+    }
+
+    /// Collect all plain tasks (for comparator / readiness logic)
+    pub(crate) fn all_tasks(&self) -> Vec<Task> {
+        self.tasks.iter().map(|mt| mt.task.clone()).collect()
     }
 
     /// Recompute visible indices from query
@@ -88,8 +133,14 @@ impl App {
                 .tasks
                 .iter()
                 .enumerate()
-                .filter_map(|(i, task)| {
-                    let haystack = task.to_todotxt_line();
+                .filter_map(|(i, mt)| {
+                    // Include the synthetic source tag in the haystack for filtering
+                    let mut haystack = mt.task.to_todotxt_line();
+                    if let Some(tag) = &mt.source.display_tag {
+                        haystack.push(' ');
+                        haystack.push('@');
+                        haystack.push_str(tag);
+                    }
                     matcher
                         .fuzzy_match(&haystack, &self.query)
                         .map(|score| (i, score))
@@ -113,24 +164,51 @@ impl App {
     }
 
     /// Reload tasks, re-sort, re-filter, preserve selection best-effort
-    pub(crate) fn reload_tasks(&mut self, tasks: Vec<Task>) {
-        // Try to preserve selection by task identity
-        let prev_selected = self.selected_task().cloned();
+    pub(crate) fn reload_tasks(&mut self, tasks: Vec<MenuTask>) {
+        // Try to preserve selection by stable key: (source path, index, todotxt line)
+        let prev_key = self.selected_menu_task().map(|mt| {
+            (
+                mt.source.todo_file.path().to_owned(),
+                mt.task.index,
+                mt.task.to_todotxt_line(),
+            )
+        });
 
         self.tasks = tasks;
-        let tasks_clone = self.tasks.clone();
-        self.tasks.sort_by(|a, b| b.cmp(a, &tasks_clone));
+        let all = self.all_tasks();
+        self.tasks.sort_by(|a, b| b.task.cmp(&a.task, &all));
         self.refilter();
 
         // Restore selection if possible
-        if let Some(prev) = prev_selected {
+        if let Some((prev_path, prev_idx, prev_line)) = prev_key {
             if let Some(pos) = self.visible.iter().position(|idx| {
-                self.tasks
-                    .get(*idx)
-                    .is_some_and(|t| t.to_todotxt_line() == prev.to_todotxt_line())
+                self.tasks.get(*idx).is_some_and(|mt| {
+                    mt.source.todo_file.path() == prev_path
+                        && mt.task.index == prev_idx
+                        && mt.task.to_todotxt_line() == prev_line
+                })
             }) {
                 self.list_state.select(Some(pos));
             }
+        }
+    }
+
+    /// Show a transient toast notification that expires after `TOAST_DURATION`
+    pub(crate) fn set_toast(&mut self, message: String) {
+        self.toast = Some((message, Instant::now() + TOAST_DURATION));
+    }
+
+    /// Clear the toast if it has expired; returns `true` if it was cleared
+    pub(crate) fn expire_toast(&mut self) -> bool {
+        if self
+            .toast
+            .as_ref()
+            .is_some_and(|(_, expiry)| Instant::now() >= *expiry)
+        {
+            self.toast = None;
+            true
+        } else {
+            false
         }
     }
 }

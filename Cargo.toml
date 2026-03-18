@@ -9,7 +9,9 @@ resolver = "2"
 anyhow = { version = "1.0.102", default-features = false, features = ["std", "backtrace"] }
 chrono = { version = "0.4.44", default-features = false, features = ["std", "clock"] }
 clap = { version = "4.6.0", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
+crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
 crossterm = { version = "0.29", default-features = false }
+deunicode = { version = "1.6.2", default-features = false, features = ["alloc"] }
 fuzzy-matcher = { version = "0.3", default-features = false }
 itertools = { version = "0.14.0", default-features = false, features = ["use_std"] }
 log = { version = "0.4.29", default-features = false, features = ["max_level_trace", "release_max_level_info"] }

@@ -9,7 +9,9 @@ use ratatui::{
     prelude::IntoCrossterm as _,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, HighlightSpacing, List, ListItem, Paragraph},
+    widgets::{
+        Block, BorderType, Borders, Clear, HighlightSpacing, List, ListItem, Padding, Paragraph,
+    },
 };
 use strum::{EnumCount as _, IntoEnumIterator as _};
 use tasks::{CreationCompletion, Date, TagKind, Task};
@@ -29,6 +31,10 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
     draw_task_list(frame, app, list_area);
     draw_footer(frame, app, footer_area);
 
+    if app.toast.is_some() {
+        draw_toast(frame, app);
+    }
+
     if app.mode == Mode::ActionPopup {
         draw_action_popup(frame, app);
     }
@@ -47,12 +53,24 @@ fn draw_search_bar(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_task_list(frame: &mut Frame, app: &mut App, area: Rect) {
+    let all = app.all_tasks();
     let items: Vec<ListItem> = app
         .visible
         .iter()
         .filter_map(|idx| app.tasks.get(*idx))
-        .map(|task| {
-            let line = styled_task_line(task, app.today, &app.tasks);
+        .map(|mt| {
+            let extra_tag = if app.multi_source {
+                // Only append if the task doesn't already have this @tag
+                mt.source.display_tag.as_deref().filter(|tag_val| {
+                    !mt.task.tags.iter().any(|t| {
+                        matches!(t.kind(), TagKind::Arobase)
+                            && t.value().eq_ignore_ascii_case(tag_val)
+                    })
+                })
+            } else {
+                None
+            };
+            let line = styled_task_line_with_source(&mt.task, app.today, &all, extra_tag);
             ListItem::new(line)
         })
         .collect();
@@ -65,19 +83,40 @@ fn draw_task_list(frame: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
-    let text = if let Some(msg) = &app.status_message {
-        msg.as_str()
-    } else {
-        match app.mode {
-            Mode::Normal => "↑↓:navigate  Enter:actions  Esc:quit  type to filter",
-            Mode::ActionPopup => "↑↓:navigate  Enter:select  Esc:cancel",
-        }
+    let text = match app.mode {
+        Mode::Normal => "↑↓:navigate  Enter:actions  Esc:quit  type to filter",
+        Mode::ActionPopup => "↑↓:navigate  Enter:select  Esc:cancel",
     };
     let footer = Paragraph::new(Span::styled(
         text,
         Style::default().add_modifier(Modifier::DIM),
     ));
     frame.render_widget(footer, area);
+}
+
+fn draw_toast(frame: &mut Frame, app: &App) {
+    let Some((msg, _)) = &app.toast else {
+        return;
+    };
+
+    let area = frame.area();
+    #[expect(clippy::cast_possible_truncation)]
+    let width = (msg.len() as u16 + 4).min(area.width);
+    let height = 3_u16; // top border + text + bottom border
+    let x = area.width.saturating_sub(width) + area.x;
+    // Place above footer (last row)
+    let y = area.height.saturating_sub(height + 1) + area.y;
+    let toast_area = Rect::new(x, y, width, height);
+
+    frame.render_widget(Clear, toast_area);
+
+    let toast = Paragraph::new(Span::styled(msg.as_str(), Style::default())).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .padding(Padding::horizontal(1)),
+    );
+    frame.render_widget(toast, toast_area);
 }
 
 fn draw_action_popup(frame: &mut Frame, app: &App) {
@@ -108,13 +147,29 @@ fn draw_action_popup(frame: &mut Frame, app: &App) {
         })
         .collect();
 
-    let popup = List::new(items).block(Block::default().borders(Borders::ALL).title("Action"));
+    let popup = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .padding(Padding::horizontal(1))
+            .title("Action"),
+    );
     frame.render_widget(popup, popup_area);
 }
 
-/// Build a styled ratatui `Line` for a task, replicating the old color semantics
-#[expect(clippy::too_many_lines)]
+/// Build a styled ratatui `Line` for a task (convenience wrapper for non-menu callers)
 pub(crate) fn styled_task_line<'a>(task: &'a Task, today: Date, all_tasks: &[Task]) -> Line<'a> {
+    styled_task_line_with_source(task, today, all_tasks, None)
+}
+
+/// Build a styled ratatui `Line` for a task, optionally appending a synthetic source tag
+#[expect(clippy::too_many_lines)]
+fn styled_task_line_with_source<'a>(
+    task: &'a Task,
+    today: Date,
+    all_tasks: &[Task],
+    source_tag: Option<&str>,
+) -> Line<'a> {
     let is_completed = matches!(task.status, CreationCompletion::Completed { .. });
     let blocked = !is_completed && task.is_blocked(all_tasks);
     let overdue = task.is_overdue(today);
@@ -168,6 +223,17 @@ pub(crate) fn styled_task_line<'a>(task: &'a Task, today: Date, all_tasks: &[Tas
                 spans.push(Span::raw(" "));
             }
         }
+    }
+
+    // Synthetic source tag (presentation-only, never persisted)
+    if let Some(stag) = source_tag {
+        let style = if not_ready {
+            Style::default()
+        } else {
+            Style::default().fg(Color::Blue)
+        };
+        spans.push(Span::styled(format!("@{stag}"), style));
+        spans.push(Span::raw(" "));
     }
 
     // Tags

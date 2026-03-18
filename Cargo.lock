@@ -388,6 +388,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
+name = "crossbeam-channel"
+version = "0.5.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82b8f8f868b36967f9606790d1903570de9ceaf870a7bf9fbbd3016d636a2cb2"
+dependencies = [
+ "crossbeam-utils",
+]
+
+[[package]]
 name = "crossbeam-utils"
 version = "0.8.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -484,6 +493,12 @@ dependencies = [
  "rustc_version",
  "syn",
 ]
+
+[[package]]
+name = "deunicode"
+version = "1.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "abd57806937c9cc163efc8ea3910e00a62e2aeb0b8119f1793a978088f8f6b04"
 
 [[package]]
 name = "dispatch2"
@@ -1535,6 +1550,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "crossbeam-channel",
  "itertools",
  "log",
  "nom",
@@ -1627,8 +1643,11 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "crossbeam-channel",
  "crossterm",
+ "deunicode",
  "fuzzy-matcher",
+ "itertools",
  "log",
  "notify-rust",
  "ratatui",

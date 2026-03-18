@@ -1,5 +1,7 @@
 //! Command line arguments handling
 
+use std::path::PathBuf;
+
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -12,7 +14,10 @@ pub(crate) enum Action {
     /// List all tasks, ordered by urgency
     List,
     /// Interactive task menu
-    Menu,
+    Menu {
+        /// todo.txt files to use, if not set use `TODO_FILE` env var
+        files: Vec<PathBuf>,
+    },
     /// Get most urgent task
     Next {
         /// Short output
