@@ -429,6 +429,8 @@ mod tests {
     fn tick_before_deadline_no_reload() {
         let mut app = make_app(&["Buy milk"]);
         app.pending_reload_at = Some(Instant::now() + Duration::from_secs(60));
+        // Prevent the date-rollover branch from firing.
+        app.today = chrono::Local::now().date_naive();
 
         let effect = handle_tick(&mut app);
         assert_eq!(effect, Effect::None);
@@ -442,6 +444,8 @@ mod tests {
             "hello".to_owned(),
             Instant::now().checked_sub(Duration::from_secs(1)).unwrap(),
         ));
+        // Prevent the date-rollover branch from firing.
+        app.today = chrono::Local::now().date_naive();
 
         let effect = handle_tick(&mut app);
         assert_eq!(effect, Effect::None);
