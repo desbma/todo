@@ -7,18 +7,19 @@
 
 ## Features
 
-- [x] Colored output, respecting native terminal colors
-- [x] Better default sorting (deprioritizes tasks before threshold date, etc.)
-- [x] FZF like menu with auto reload
-- [x] Task recurrence, propagated to both `t` and `due` attributes, at 'do' time...
-  - [x] ...and after it if task was marked as done from another device
-- [x] Auto archival of done tasks...
-  - [x] ...with compression for old tasks
-- [x] Automatic backup
-- [x] Undo
-- [x] Report of tasks created/completed in the last _N_ days
-- [x] Task dependencies
-- [x] Completely independant of `todo.sh`
+- Colored output, respecting native terminal colors
+- Better default sorting (deprioritizes tasks before threshold date, etc.)
+- FZF like menu with auto reload
+- Task dependencies
+- Task recurrence, propagated to both `t` and `due` attributes, at 'do' time...
+  - ...and after it if task was marked as done from another device
+- Support multiple files as input
+- Undo
+- Auto archival of done tasks...
+  - ...with compression for old tasks
+- Automatic backup
+- Report of tasks created/completed in the last _N_ days
+- Self sufficient (independant of `todo.sh`, or any runtime)
 
 ## Rationale
 
