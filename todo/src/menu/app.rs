@@ -161,22 +161,10 @@ fn run_loop(
         match effect {
             Effect::None => {}
             Effect::ReloadTasks => {
-                if !app.pending_reload_sources.is_empty() {
-                    let paths: Vec<_> = app
-                        .pending_reload_sources
-                        .drain()
-                        .filter_map(|i| sources.get(i))
-                        .map(|s| format!("{:?}", s.todo_file.path()))
-                        .collect();
-                    if !paths.is_empty() {
-                        app.set_toast(format!("{} reloaded", paths.join(", ")));
-                    }
-                }
-                let tasks = load_all_tasks(sources)?;
-                app.reload_tasks(tasks);
+                reload_with_toast(app, sources)?;
             }
             Effect::PerformAction(action) => {
-                run_action(terminal, app, sources, action)?;
+                run_action(terminal, app, sources, file_event_rxs, action)?;
             }
             Effect::ExecSelf => return Ok(ExitReason::ExecSelf),
             Effect::Quit => return Ok(ExitReason::Quit),
@@ -220,10 +208,30 @@ fn next_msg(
     Ok(Msg::Tick)
 }
 
+/// Reload tasks from all sources. If any sources are pending (changed in the
+/// background by the file watcher), show a toast naming the reloaded files.
+fn reload_with_toast(app: &mut App, sources: &[Rc<MenuSource>]) -> anyhow::Result<()> {
+    if !app.pending_reload_sources.is_empty() {
+        let paths: Vec<_> = app
+            .pending_reload_sources
+            .drain()
+            .filter_map(|i| sources.get(i))
+            .map(|s| format!("{:?}", s.todo_file.path()))
+            .collect();
+        if !paths.is_empty() {
+            app.set_toast(format!("{} reloaded", paths.join(", ")));
+        }
+    }
+    let tasks = load_all_tasks(sources)?;
+    app.reload_tasks(tasks);
+    Ok(())
+}
+
 fn run_action(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
     sources: &[Rc<MenuSource>],
+    file_event_rxs: &[crossbeam_channel::Receiver<()>],
     action: TaskAction,
 ) -> anyhow::Result<()> {
     let Some(menu_task) = app.selected_menu_task() else {
@@ -257,9 +265,134 @@ fn run_action(
         }
     }
 
-    // Reload all sources after any action
+    // Reload all sources after any action, and drain file-watcher
+    // events so we don't show a spurious "reloaded" toast from our
+    // own write.
     let tasks = load_all_tasks(sources)?;
     app.reload_tasks(tasks);
+    for rx in file_event_rxs {
+        while rx.try_recv().is_ok() {}
+    }
+    app.pending_reload_sources.clear();
+    app.pending_reload_at = None;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{io::Write as _, rc::Rc, time::Instant};
+
+    use tasks::TodoFile;
+
+    use super::*;
+
+    fn today() -> tasks::Date {
+        chrono::NaiveDate::from_ymd_opt(2026, 3, 18).unwrap()
+    }
+
+    /// Returns the source and keeps the temp files alive via the returned handles.
+    fn make_source() -> (
+        Rc<MenuSource>,
+        tempfile::NamedTempFile,
+        tempfile::NamedTempFile,
+    ) {
+        let mut todo = tempfile::NamedTempFile::new().unwrap();
+        let mut done = tempfile::NamedTempFile::new().unwrap();
+        writeln!(todo, "Buy milk").unwrap();
+        writeln!(done, "placeholder").unwrap();
+        let source = Rc::new(MenuSource::new(
+            TodoFile::new(todo.path(), done.path()).unwrap(),
+            None,
+        ));
+        (source, todo, done)
+    }
+
+    fn make_app(source: &Rc<MenuSource>) -> App {
+        let tasks = source
+            .todo_file
+            .load_tasks()
+            .unwrap()
+            .into_iter()
+            .map(|task| MenuTask {
+                task,
+                source: Rc::clone(source),
+            })
+            .collect();
+        App::new(tasks, today(), false)
+    }
+
+    #[test]
+    fn reload_with_toast_shows_toast_on_background_change() {
+        let (source, _todo, _done) = make_source();
+        let sources = vec![source];
+        let mut app = make_app(&sources[0]);
+
+        // Simulate a background file change detected by the watcher
+        app.pending_reload_sources.insert(0);
+        app.pending_reload_at = Some(Instant::now());
+
+        reload_with_toast(&mut app, &sources).unwrap();
+
+        assert!(app.toast.is_some());
+        assert!(app.toast.as_ref().unwrap().0.contains("reloaded"));
+    }
+
+    #[test]
+    fn reload_with_toast_no_toast_when_no_pending_sources() {
+        let (source, _todo, _done) = make_source();
+        let sources = vec![source];
+        let mut app = make_app(&sources[0]);
+
+        // No pending sources — simulates reload after a user action that
+        // already cleared pending state
+        assert!(app.pending_reload_sources.is_empty());
+
+        reload_with_toast(&mut app, &sources).unwrap();
+
+        assert!(app.toast.is_none());
+    }
+
+    #[test]
+    fn drain_channels_clears_pending_watcher_events() {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let file_event_rxs = [rx];
+
+        // Simulate watcher events queued from our own file write
+        tx.send(()).unwrap();
+        tx.send(()).unwrap();
+
+        // Drain — same logic as run_action
+        for r in &file_event_rxs {
+            while r.try_recv().is_ok() {}
+        }
+
+        // Channel should now be empty
+        assert!(file_event_rxs[0].try_recv().is_err());
+    }
+
+    #[test]
+    fn user_action_clears_pending_reload_state() {
+        let (source, _todo, _done) = make_source();
+        let mut app = make_app(&source);
+
+        // Simulate: file watcher detected a change (from our own write)
+        update::handle_file_changed(&mut app, vec![0]);
+        assert!(app.pending_reload_at.is_some());
+        assert!(!app.pending_reload_sources.is_empty());
+
+        // Simulate what run_action does after completing an action:
+        // reload tasks then clear pending state
+        let sources = vec![source];
+        let tasks = load_all_tasks(&sources).unwrap();
+        app.reload_tasks(tasks);
+        app.pending_reload_sources.clear();
+        app.pending_reload_at = None;
+
+        // Now a tick should NOT trigger a reload
+        app.today = chrono::Local::now().date_naive();
+        let effect = update::handle_tick(&mut app);
+        assert_eq!(effect, Effect::None);
+        assert!(app.pending_reload_sources.is_empty());
+    }
 }
