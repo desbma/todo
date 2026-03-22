@@ -76,6 +76,8 @@ pub(crate) struct App {
     pub toast: Option<(String, Instant)>,
     /// Whether we are operating in multi-source mode
     pub multi_source: bool,
+    /// Whether the executable file has changed and needs re-exec after debounce
+    pub pending_exe_reload_at: Option<Instant>,
 }
 
 impl App {
@@ -93,6 +95,7 @@ impl App {
             pending_reload_sources: HashSet::new(),
             toast: None,
             multi_source,
+            pending_exe_reload_at: None,
         };
         app.refilter();
         if !app.visible.is_empty() {
@@ -247,8 +250,6 @@ mod tests {
             .collect()
     }
 
-    // --- App::new ---
-
     #[test]
     fn new_populates_visible_and_selects_first() {
         let app = App::new(make_tasks(&["Task A", "Task B"]), today(), false);
@@ -262,8 +263,6 @@ mod tests {
         assert!(app.visible.is_empty());
         assert_eq!(app.list_state.selected(), None);
     }
-
-    // --- refilter ---
 
     #[test]
     fn refilter_empty_query_shows_all() {
@@ -305,8 +304,6 @@ mod tests {
         assert!(app.list_state.selected().unwrap() < app.visible.len());
     }
 
-    // --- selected_task ---
-
     #[test]
     fn selected_task_returns_correct_task() {
         let app = App::new(make_tasks(&["Buy milk", "Walk dog"]), today(), false);
@@ -320,8 +317,6 @@ mod tests {
         assert!(app.selected_task().is_none());
     }
 
-    // --- reload_tasks ---
-
     #[test]
     fn reload_tasks_updates_and_refilters() {
         let mut app = App::new(make_tasks(&["Buy milk"]), today(), false);
@@ -329,8 +324,6 @@ mod tests {
         assert_eq!(app.tasks.len(), 3);
         assert_eq!(app.visible.len(), 3);
     }
-
-    // --- set_toast / expire_toast ---
 
     #[test]
     fn set_toast_sets_message() {

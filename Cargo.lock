@@ -1649,6 +1649,7 @@ dependencies = [
  "fuzzy-matcher",
  "itertools",
  "log",
+ "notify",
  "notify-rust",
  "ratatui",
  "simple_logger",

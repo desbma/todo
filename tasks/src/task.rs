@@ -1364,8 +1364,6 @@ mod tests {
         }
     }
 
-    // --- Parser helper tests ---
-
     #[test]
     fn date_token_valid() {
         let (rest, d) = parse_date_token("2023-08-20 foo").unwrap();
@@ -1552,8 +1550,6 @@ mod tests {
         assert!(parse_recurrence("3x").is_err());
         assert!(parse_recurrence("d").is_err());
     }
-
-    // --- Integration / parity tests ---
 
     #[test]
     fn parse_prefix_interleaved_tags_attrs_text() {

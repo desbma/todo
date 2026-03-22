@@ -399,8 +399,6 @@ mod tests {
         s.parse().unwrap()
     }
 
-    // --- styled_task_line: priority ---
-
     #[test]
     fn priority_a_has_red_fg() {
         let task = parse("(A) Buy milk");
@@ -428,8 +426,6 @@ mod tests {
         assert_eq!(pri_span.style.fg, Some(Color::Yellow));
     }
 
-    // --- styled_task_line: completed ---
-
     #[test]
     fn completed_task_has_dim_and_crossed_out() {
         let task = parse("x 2026-03-17 Buy milk");
@@ -437,8 +433,6 @@ mod tests {
         assert!(line.style.add_modifier.contains(Modifier::DIM));
         assert!(line.style.add_modifier.contains(Modifier::CROSSED_OUT));
     }
-
-    // --- styled_task_line: tags ---
 
     #[test]
     fn plus_tag_has_cyan_fg() {
@@ -476,8 +470,6 @@ mod tests {
         assert_eq!(tag_span.style.fg, Some(Color::Blue));
     }
 
-    // --- styled_task_line: overdue due ---
-
     #[test]
     fn overdue_due_has_magenta_fg() {
         let task = parse("Buy milk due:2026-03-01");
@@ -490,8 +482,6 @@ mod tests {
         assert_eq!(due_span.style.fg, Some(Color::Magenta));
     }
 
-    // --- styled_task_line: blocked ---
-
     #[test]
     fn blocked_task_has_italic() {
         let blocker = parse("Buy milk id:1");
@@ -500,8 +490,6 @@ mod tests {
         let line = styled_task_line(&task, today(), &all);
         assert!(line.style.add_modifier.contains(Modifier::ITALIC));
     }
-
-    // --- styled_task_line: source tag ---
 
     #[test]
     fn source_tag_appended_with_blue() {
@@ -514,8 +502,6 @@ mod tests {
             .unwrap();
         assert_eq!(source_span.style.fg, Some(Color::Blue));
     }
-
-    // --- line_to_ansi ---
 
     #[test]
     fn empty_line_to_ansi() {
@@ -536,8 +522,6 @@ mod tests {
         assert!(ansi.contains("\x1b["));
         assert!(ansi.contains("red"));
     }
-
-    // --- merge_styles ---
 
     #[test]
     fn child_fg_overrides_parent() {

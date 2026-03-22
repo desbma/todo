@@ -31,6 +31,7 @@
   - Prefer `unwrap()` over `expect()` for conciseness
   - Do not add custom messages to `assert!`/`assert_eq!`/`assert_ne!` — the test name is sufficient
   - Prefer full type comparisons with `assert_eq!` over selectively checking nested attributes or unpacking; tag types with `#[cfg_attr(test, derive(Eq, PartialEq))]` if needed
+  - Do not add section-separator comments (e.g., `// --- Some Section ---`) in test modules — test names are descriptive enough
 - When moving or refactoring code, never remove comment lines — preserve all comments and move them along with the code they document
 
 ## Version control

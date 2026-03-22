@@ -12,6 +12,7 @@ pub(crate) enum Msg {
     Key(KeyEvent),
     Resize,
     TasksFileChanged(Vec<usize>),
+    ExeFileChanged,
     Tick,
 }
 
@@ -23,6 +24,7 @@ pub(crate) enum Effect {
     None,
     ReloadTasks,
     PerformAction(TaskAction),
+    ExecSelf,
     Quit,
 }
 
@@ -151,8 +153,21 @@ pub(crate) fn handle_file_changed(app: &mut App, changed_sources: Vec<usize>) {
     app.pending_reload_at = Some(Instant::now() + RELOAD_DEBOUNCE);
 }
 
+/// Handle an exe-file-changed notification: schedule a debounced re-exec
+pub(crate) fn handle_exe_changed(app: &mut App) {
+    app.pending_exe_reload_at = Some(Instant::now() + RELOAD_DEBOUNCE);
+}
+
 /// Handle a tick: check if a pending reload is due
 pub(crate) fn handle_tick(app: &mut App) -> Effect {
+    // Check exe reload first — takes priority
+    if let Some(deadline) = app.pending_exe_reload_at {
+        if Instant::now() >= deadline {
+            app.pending_exe_reload_at = None;
+            return Effect::ExecSelf;
+        }
+    }
+
     if let Some(deadline) = app.pending_reload_at {
         if Instant::now() >= deadline {
             app.pending_reload_at = None;
@@ -218,8 +233,6 @@ mod tests {
         App::new(tasks, today(), false)
     }
 
-    // --- Normal mode: Esc ---
-
     #[test]
     fn esc_empty_query_quits() {
         let mut app = make_app(&["Buy milk"]);
@@ -239,8 +252,6 @@ mod tests {
         assert!(app.query.is_empty());
     }
 
-    // --- Normal mode: Ctrl+C ---
-
     #[test]
     fn ctrl_c_quits() {
         let mut app = make_app(&["Buy milk"]);
@@ -248,8 +259,6 @@ mod tests {
         assert_eq!(effect, Effect::Quit);
         assert!(app.should_quit);
     }
-
-    // --- Normal mode: Enter ---
 
     #[test]
     fn enter_with_selection_opens_popup() {
@@ -267,8 +276,6 @@ mod tests {
         assert_eq!(effect, Effect::None);
         assert_eq!(app.mode, Mode::Normal);
     }
-
-    // --- Normal mode: navigation ---
 
     #[test]
     fn down_moves_selection() {
@@ -318,8 +325,6 @@ mod tests {
         assert_eq!(app.list_state.selected(), Some(2));
     }
 
-    // --- Normal mode: typing ---
-
     #[test]
     fn char_appends_to_query() {
         let mut app = make_app(&["Buy milk"]);
@@ -334,8 +339,6 @@ mod tests {
         handle_key(&mut app, key(KeyCode::Backspace));
         assert_eq!(app.query, "m");
     }
-
-    // --- ActionPopup mode ---
 
     #[test]
     fn popup_esc_returns_to_normal() {
@@ -400,8 +403,6 @@ mod tests {
         assert_eq!(effect, Effect::Quit);
     }
 
-    // --- handle_file_changed ---
-
     #[test]
     fn file_changed_inserts_sources_and_sets_deadline() {
         let mut app = make_app(&["Buy milk"]);
@@ -412,8 +413,6 @@ mod tests {
         assert!(app.pending_reload_sources.contains(&0));
         assert!(app.pending_reload_sources.contains(&2));
     }
-
-    // --- handle_tick ---
 
     #[test]
     fn tick_past_deadline_reloads() {
@@ -435,6 +434,47 @@ mod tests {
         let effect = handle_tick(&mut app);
         assert_eq!(effect, Effect::None);
         assert!(app.pending_reload_at.is_some());
+    }
+
+    #[test]
+    fn exe_changed_sets_deadline() {
+        let mut app = make_app(&["Buy milk"]);
+        assert!(app.pending_exe_reload_at.is_none());
+
+        handle_exe_changed(&mut app);
+        assert!(app.pending_exe_reload_at.is_some());
+    }
+
+    #[test]
+    fn tick_past_exe_deadline_exec_self() {
+        let mut app = make_app(&["Buy milk"]);
+        app.pending_exe_reload_at = Instant::now().checked_sub(Duration::from_millis(1));
+
+        let effect = handle_tick(&mut app);
+        assert_eq!(effect, Effect::ExecSelf);
+        assert!(app.pending_exe_reload_at.is_none());
+    }
+
+    #[test]
+    fn tick_before_exe_deadline_no_exec() {
+        let mut app = make_app(&["Buy milk"]);
+        app.pending_exe_reload_at = Some(Instant::now() + Duration::from_secs(60));
+        // Prevent the date-rollover branch from firing.
+        app.today = chrono::Local::now().date_naive();
+
+        let effect = handle_tick(&mut app);
+        assert_eq!(effect, Effect::None);
+        assert!(app.pending_exe_reload_at.is_some());
+    }
+
+    #[test]
+    fn exe_reload_takes_priority_over_task_reload() {
+        let mut app = make_app(&["Buy milk"]);
+        app.pending_exe_reload_at = Instant::now().checked_sub(Duration::from_millis(1));
+        app.pending_reload_at = Instant::now().checked_sub(Duration::from_millis(1));
+
+        let effect = handle_tick(&mut app);
+        assert_eq!(effect, Effect::ExecSelf);
     }
 
     #[test]
