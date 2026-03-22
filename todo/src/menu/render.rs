@@ -90,7 +90,8 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
     let footer = Paragraph::new(Span::styled(
         text,
         Style::default().add_modifier(Modifier::DIM),
-    ));
+    ))
+    .block(Block::default().style(Style::default().bg(Color::Black)));
     frame.render_widget(footer, area);
 }
 
