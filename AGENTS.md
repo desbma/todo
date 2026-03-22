@@ -11,8 +11,18 @@
 ## Architecture
 
 - Rust workspace (edition 2024, MSRV 1.87) with two crates:
-  - **`tasks`** — library crate: `Task` model (`task.rs`), `TodoFile` file I/O with zstd-compressed backups (`file.rs`)
-  - **`todo`** — binary crate: CLI frontend using clap+fzf+dialoguer, depends on `tasks`
+  - **`tasks`** — library crate: `Task` model with todo.txt parsing via `nom` (`task.rs`),
+    `TodoFile` for file I/O, file watching via `notify`, undo history, auto-archiving,
+    and zstd-compressed backups (`file.rs`)
+  - **`todo`** — binary crate (depends on `tasks`): clap-based CLI with subcommands
+    (`add`, `auto`, `list`, `menu`, `next`, `notify-overdue`, `pending-count`, `report`, `undo`)
+    defined in `cl.rs`, dispatched from `main.rs`
+- The `menu` subcommand launches an interactive TUI (ratatui + crossterm) in `menu/`:
+  - `state.rs` — state machine (`App`, `Mode::Normal`/`ActionPopup`, `TaskAction`)
+  - `update.rs` — pure state transitions from key events, file-change notifications, and ticks
+  - `render.rs` — draws search bar, task list with priority/tag/date coloring, action popup, and toast
+  - `app.rs` — event loop wiring terminal events, file watcher channels, and task I/O
+- Supports multiple todo.txt files: all commands accept optional file paths (defaults to `$TODO_FILE`)
 - Uses `anyhow` for error handling throughout; no `unwrap`/`expect` outside tests
 
 ## Code Style
