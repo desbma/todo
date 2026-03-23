@@ -244,7 +244,6 @@ fn run_action(
     match action {
         TaskAction::MarkDone => {
             source.todo_file.set_done(task, app.today)?;
-            app.set_toast(format!("Task marked as done ({source_path:?})"));
         }
         TaskAction::Edit => {
             // Leave TUI for external editor
