@@ -239,7 +239,6 @@ fn run_action(
     };
     let task = menu_task.task.clone();
     let source = Rc::clone(&menu_task.source);
-    let source_path = source.todo_file.path();
 
     match action {
         TaskAction::MarkDone => {
@@ -260,7 +259,6 @@ fn run_action(
         }
         TaskAction::Start => {
             source.todo_file.start(&task, app.today)?;
-            app.set_toast(format!("Task started ({source_path:?})"));
         }
     }
 
