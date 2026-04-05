@@ -182,19 +182,40 @@ fn draw_action_popup(frame: &mut Frame, app: &App) {
 }
 
 fn build_tab_titles(app: &App) -> Vec<Line<'_>> {
+    let all_tasks = app.all_tasks();
+
     app.tabs
         .iter()
         .map(|tab| {
+            let style = tab_style(app, tab, &all_tasks);
             if tab == "All" {
-                Line::from(tab.as_str())
+                Line::from(Span::styled(tab.as_str(), style))
             } else {
-                Line::from(Span::styled(
-                    format!("@{tab}"),
-                    Style::default().fg(Color::Blue),
-                ))
+                Line::from(Span::styled(format!("@{tab}"), style))
             }
         })
         .collect()
+}
+
+fn tab_style(app: &App, tab: &str, all_tasks: &[Task]) -> Style {
+    let mut style = if tab == "All" {
+        Style::default()
+    } else {
+        Style::default().fg(Color::Blue)
+    };
+
+    if !tab_has_ready_tasks(app, tab, all_tasks) {
+        style = style.add_modifier(Modifier::DIM);
+    }
+
+    style
+}
+
+fn tab_has_ready_tasks(app: &App, tab: &str, all_tasks: &[Task]) -> bool {
+    app.tasks
+        .iter()
+        .filter(|menu_task| tab == "All" || menu_task.has_project_tag(tab))
+        .any(|menu_task| menu_task.task.is_ready(app.today, all_tasks))
 }
 
 fn build_search_line(app: &App) -> Line<'_> {
@@ -473,13 +494,21 @@ mod tests {
     }
 
     fn make_app(lines: &[&str], selected_tab: usize) -> App {
+        make_app_with_source_tag(lines, selected_tab, Some("work"))
+    }
+
+    fn make_app_with_source_tag(
+        lines: &[&str],
+        selected_tab: usize,
+        source_tag: Option<&str>,
+    ) -> App {
         let mut todo = tempfile::NamedTempFile::new().unwrap();
         let mut done = tempfile::NamedTempFile::new().unwrap();
         writeln!(todo, "placeholder").unwrap();
         writeln!(done, "placeholder").unwrap();
         let source = Rc::new(MenuSource::new(
             TodoFile::new(todo.path(), done.path()).unwrap(),
-            Some("work".to_owned()),
+            source_tag.map(str::to_owned),
         ));
         let tasks = lines
             .iter()
@@ -637,11 +666,45 @@ mod tests {
     fn tab_titles_prefix_projects_with_at() {
         let app = make_app(&["Buy milk"], 0);
         let titles = build_tab_titles(&app);
-        assert_eq!(titles[0], Line::from("All"));
+        assert_eq!(titles[0], Line::from(Span::styled("All", Style::default())));
         assert_eq!(
             titles[1],
             Line::from(Span::styled("@work", Style::default().fg(Color::Blue)))
         );
+    }
+
+    #[test]
+    fn completed_only_project_tab_is_dimmed() {
+        let app = make_app_with_source_tag(&["x 2026-03-17 @work Done"], 0, None);
+        let titles = build_tab_titles(&app);
+        let work_span = &titles[1].spans[0];
+        assert_eq!(work_span.content.as_ref(), "@work");
+        assert_eq!(work_span.style.fg, Some(Color::Blue));
+        assert!(work_span.style.add_modifier.contains(Modifier::DIM));
+    }
+
+    #[test]
+    fn blocked_only_project_tab_is_dimmed() {
+        let app = make_app_with_source_tag(&["@work Follow up dep:1", "Blocker id:1"], 0, None);
+        let titles = build_tab_titles(&app);
+        let work_span = &titles[1].spans[0];
+        assert_eq!(work_span.content.as_ref(), "@work");
+        assert_eq!(work_span.style.fg, Some(Color::Blue));
+        assert!(work_span.style.add_modifier.contains(Modifier::DIM));
+    }
+
+    #[test]
+    fn project_tab_with_ready_task_is_not_dimmed() {
+        let app = make_app_with_source_tag(
+            &["@work Follow up dep:1", "@work Ready task", "Blocker id:1"],
+            0,
+            None,
+        );
+        let titles = build_tab_titles(&app);
+        let work_span = &titles[1].spans[0];
+        assert_eq!(work_span.content.as_ref(), "@work");
+        assert_eq!(work_span.style.fg, Some(Color::Blue));
+        assert!(!work_span.style.add_modifier.contains(Modifier::DIM));
     }
 
     #[test]

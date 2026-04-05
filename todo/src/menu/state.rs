@@ -65,7 +65,7 @@ pub(crate) struct MenuTask {
 }
 
 impl MenuTask {
-    fn has_project_tag(&self, tag: &str) -> bool {
+    pub(crate) fn has_project_tag(&self, tag: &str) -> bool {
         self.task.tags.iter().any(|task_tag| {
             matches!(task_tag.kind(), TagKind::Arobase)
                 && task_tag.value().eq_ignore_ascii_case(tag)
