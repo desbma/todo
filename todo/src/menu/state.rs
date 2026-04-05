@@ -1,13 +1,13 @@
 //! Menu TUI state
 
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     rc::Rc,
     time::{Duration, Instant},
 };
 
 use ratatui::widgets::ListState;
-use tasks::{Date, Task, TodoFile};
+use tasks::{Date, TagKind, Task, TodoFile};
 
 const TOAST_DURATION: Duration = Duration::from_secs(5);
 
@@ -60,9 +60,24 @@ pub(crate) struct MenuTask {
     pub source: Rc<MenuSource>,
 }
 
+impl MenuTask {
+    fn has_project_tag(&self, tag: &str) -> bool {
+        self.task.tags.iter().any(|task_tag| {
+            matches!(task_tag.kind(), TagKind::Arobase)
+                && task_tag.value().eq_ignore_ascii_case(tag)
+        }) || self
+            .source
+            .display_tag
+            .as_deref()
+            .is_some_and(|source_tag| source_tag.eq_ignore_ascii_case(tag))
+    }
+}
+
 pub(crate) struct App {
     pub tasks: Vec<MenuTask>,
     pub visible: Vec<usize>,
+    pub tabs: Vec<String>,
+    pub selected_tab: usize,
     pub query: String,
     pub list_state: ListState,
     pub mode: Mode,
@@ -82,7 +97,10 @@ pub(crate) struct App {
 
 impl App {
     pub(crate) fn new(tasks: Vec<MenuTask>, today: Date, multi_source: bool) -> Self {
+        let tabs = collect_tabs(&tasks);
         let mut app = Self {
+            tabs,
+            selected_tab: 0,
             tasks,
             visible: Vec::new(),
             query: String::new(),
@@ -123,19 +141,73 @@ impl App {
         self.tasks.iter().map(|mt| mt.task.clone()).collect()
     }
 
+    #[must_use]
+    pub(crate) fn has_tabs(&self) -> bool {
+        self.tabs.len() > 1
+    }
+
+    #[must_use]
+    pub(crate) fn active_tab(&self) -> Option<&str> {
+        (self.selected_tab > 0)
+            .then(|| self.tabs.get(self.selected_tab))
+            .flatten()
+            .map(String::as_str)
+    }
+
+    pub(crate) fn clear_tab_filter(&mut self) -> bool {
+        self.select_tab(0)
+    }
+
+    pub(crate) fn select_next_tab(&mut self) -> bool {
+        if self.tabs.len() <= 1 {
+            return false;
+        }
+
+        self.select_tab((self.selected_tab + 1) % self.tabs.len())
+    }
+
+    pub(crate) fn select_prev_tab(&mut self) -> bool {
+        if self.tabs.len() <= 1 {
+            return false;
+        }
+
+        let next = if self.selected_tab == 0 {
+            self.tabs.len() - 1
+        } else {
+            self.selected_tab - 1
+        };
+        self.select_tab(next)
+    }
+
     /// Recompute visible indices from query
     pub(crate) fn refilter(&mut self) {
         use fuzzy_matcher::FuzzyMatcher as _;
 
         let matcher = fuzzy_matcher::skim::SkimMatcherV2::default();
+        let active_tab = self.active_tab().map(str::to_owned);
 
         if self.query.is_empty() {
-            self.visible = (0..self.tasks.len()).collect();
+            self.visible = self
+                .tasks
+                .iter()
+                .enumerate()
+                .filter(|(_, mt)| {
+                    active_tab
+                        .as_deref()
+                        .is_none_or(|tag| mt.has_project_tag(tag))
+                })
+                .map(|(i, _)| i)
+                .collect();
         } else {
             let mut scored: Vec<(usize, i64)> = self
                 .tasks
                 .iter()
                 .enumerate()
+                .filter(|(_, mt)| {
+                    active_tab
+                        .as_deref()
+                        .is_none_or(|tag| mt.has_project_tag(tag))
+                })
                 .filter_map(|(i, mt)| {
                     // Include the synthetic source tag in the haystack for filtering
                     let mut haystack = mt.task.to_todotxt_line();
@@ -176,10 +248,12 @@ impl App {
                 mt.task.to_todotxt_line(),
             )
         });
+        let prev_tab = self.active_tab().map(str::to_owned);
 
         self.tasks = tasks;
         let all = self.all_tasks();
         self.tasks.sort_by(|a, b| b.task.cmp(&a.task, &all));
+        self.rebuild_tabs(prev_tab.as_deref());
         self.refilter();
 
         // Restore selection if possible
@@ -214,6 +288,54 @@ impl App {
             false
         }
     }
+
+    fn rebuild_tabs(&mut self, preferred: Option<&str>) {
+        self.tabs = collect_tabs(&self.tasks);
+        self.selected_tab = preferred
+            .and_then(|tag| {
+                self.tabs
+                    .iter()
+                    .position(|candidate| candidate.eq_ignore_ascii_case(tag))
+            })
+            .unwrap_or(0);
+    }
+
+    fn select_tab(&mut self, tab: usize) -> bool {
+        if tab == self.selected_tab {
+            return false;
+        }
+
+        self.selected_tab = tab;
+        self.refilter();
+        if self.visible.is_empty() {
+            self.list_state.select(None);
+        } else {
+            self.list_state.select(Some(0));
+        }
+        true
+    }
+}
+
+fn collect_tabs(tasks: &[MenuTask]) -> Vec<String> {
+    let mut tabs = BTreeMap::new();
+
+    for menu_task in tasks {
+        for tag in &menu_task.task.tags {
+            if matches!(tag.kind(), TagKind::Arobase) {
+                tabs.entry(tag.value().to_ascii_lowercase())
+                    .or_insert_with(|| tag.value().to_owned());
+            }
+        }
+
+        if let Some(source_tag) = &menu_task.source.display_tag {
+            tabs.entry(source_tag.to_ascii_lowercase())
+                .or_insert_with(|| source_tag.clone());
+        }
+    }
+
+    let mut all_tabs = vec!["All".to_owned()];
+    all_tabs.extend(tabs.into_values());
+    all_tabs
 }
 
 #[cfg(test)]
@@ -228,19 +350,34 @@ mod tests {
         chrono::NaiveDate::from_ymd_opt(2026, 3, 18).unwrap()
     }
 
-    fn make_source() -> Rc<MenuSource> {
+    fn make_source_with_tag(display_tag: Option<&str>) -> Rc<MenuSource> {
         let mut todo = tempfile::NamedTempFile::new().unwrap();
         let mut done = tempfile::NamedTempFile::new().unwrap();
         writeln!(todo, "placeholder").unwrap();
         writeln!(done, "placeholder").unwrap();
         Rc::new(MenuSource::new(
             TodoFile::new(todo.path(), done.path()).unwrap(),
-            None,
+            display_tag.map(str::to_owned),
         ))
+    }
+
+    fn make_source() -> Rc<MenuSource> {
+        make_source_with_tag(None)
     }
 
     fn make_tasks(lines: &[&str]) -> Vec<MenuTask> {
         let source = make_source();
+        lines
+            .iter()
+            .map(|l| MenuTask {
+                task: l.parse().unwrap(),
+                source: Rc::clone(&source),
+            })
+            .collect()
+    }
+
+    fn make_tasks_with_source(lines: &[&str], display_tag: Option<&str>) -> Vec<MenuTask> {
+        let source = make_source_with_tag(display_tag);
         lines
             .iter()
             .map(|l| MenuTask {
@@ -255,6 +392,22 @@ mod tests {
         let app = App::new(make_tasks(&["Task A", "Task B"]), today(), false);
         assert_eq!(app.visible, vec![0, 1]);
         assert_eq!(app.list_state.selected(), Some(0));
+        assert_eq!(app.tabs, vec!["All"]);
+    }
+
+    #[test]
+    fn new_collects_tabs_from_real_and_source_tags() {
+        let mut tasks = make_tasks_with_source(&["@office Buy milk", "Read book"], Some("work"));
+        tasks.extend(make_tasks(&["@home Walk dog"]));
+
+        let app = App::new(tasks, today(), true);
+        assert_eq!(app.tabs, vec!["All", "home", "office", "work"]);
+    }
+
+    #[test]
+    fn has_tabs_requires_non_all_entry() {
+        let app = App::new(make_tasks(&["Task A", "Task B"]), today(), false);
+        assert!(!app.has_tabs());
     }
 
     #[test]
@@ -279,6 +432,47 @@ mod tests {
         app.refilter();
         assert_eq!(app.visible.len(), 1);
         assert_eq!(app.tasks[app.visible[0]].task.text, "Buy milk");
+    }
+
+    #[test]
+    fn refilter_selected_tab_limits_results() {
+        let mut app = App::new(
+            make_tasks(&["@home Buy milk", "@work Walk dog", "Read book"]),
+            today(),
+            false,
+        );
+
+        assert!(app.select_next_tab());
+        assert_eq!(app.active_tab(), Some("home"));
+        assert_eq!(app.visible.len(), 1);
+        assert_eq!(app.tasks[app.visible[0]].task.text, "Buy milk");
+    }
+
+    #[test]
+    fn refilter_selected_tab_and_query_stack() {
+        let mut app = App::new(
+            make_tasks(&["@work Buy milk", "@work Call mom", "@home Buy bread"]),
+            today(),
+            false,
+        );
+
+        app.select_tab(2);
+        app.query = "milk".to_owned();
+        app.refilter();
+
+        assert_eq!(app.active_tab(), Some("work"));
+        assert_eq!(app.visible.len(), 1);
+        assert_eq!(app.tasks[app.visible[0]].task.text, "Buy milk");
+    }
+
+    #[test]
+    fn refilter_selected_tab_matches_source_tag() {
+        let app = App::new(
+            make_tasks_with_source(&["Buy milk"], Some("work")),
+            today(),
+            true,
+        );
+        assert_eq!(app.tabs, vec!["All", "work"]);
     }
 
     #[test]
@@ -323,6 +517,37 @@ mod tests {
         app.reload_tasks(make_tasks(&["Walk dog", "Cook dinner", "Read book"]));
         assert_eq!(app.tasks.len(), 3);
         assert_eq!(app.visible.len(), 3);
+    }
+
+    #[test]
+    fn reload_tasks_falls_back_to_all_when_selected_tab_disappears() {
+        let mut app = App::new(
+            make_tasks(&["@home Buy milk", "@work Walk dog"]),
+            today(),
+            false,
+        );
+        app.select_tab(2);
+
+        app.reload_tasks(make_tasks(&["@home Buy milk"]));
+
+        assert_eq!(app.tabs, vec!["All", "home"]);
+        assert_eq!(app.selected_tab, 0);
+        assert_eq!(app.active_tab(), None);
+    }
+
+    #[test]
+    fn reload_tasks_preserves_selected_tab_when_still_present() {
+        let mut app = App::new(
+            make_tasks(&["@home Buy milk", "@work Walk dog"]),
+            today(),
+            false,
+        );
+        app.select_tab(2);
+
+        app.reload_tasks(make_tasks(&["@work Read book", "@home Buy milk"]));
+
+        assert_eq!(app.selected_tab, 2);
+        assert_eq!(app.active_tab(), Some("work"));
     }
 
     #[test]

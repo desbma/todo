@@ -11,6 +11,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{
         Block, BorderType, Borders, Clear, HighlightSpacing, List, ListItem, Padding, Paragraph,
+        Tabs,
     },
 };
 use strum::{EnumCount as _, IntoEnumIterator as _};
@@ -20,13 +21,28 @@ use super::state::{App, Mode, TaskAction};
 
 /// Render the full UI
 pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
-    let [search_area, list_area, footer_area] = Layout::vertical([
-        Constraint::Length(1), // search input
-        Constraint::Min(1),    // task list
-        Constraint::Length(1), // footer
-    ])
-    .areas(frame.area());
+    let (tabs_area, search_area, list_area, footer_area) = if app.has_tabs() {
+        let [tabs_area, search_area, list_area, footer_area] = Layout::vertical([
+            Constraint::Length(1), // tabs
+            Constraint::Length(1), // search input
+            Constraint::Min(1),    // task list
+            Constraint::Length(1), // footer
+        ])
+        .areas(frame.area());
+        (Some(tabs_area), search_area, list_area, footer_area)
+    } else {
+        let [search_area, list_area, footer_area] = Layout::vertical([
+            Constraint::Length(1), // search input
+            Constraint::Min(1),    // task list
+            Constraint::Length(1), // footer
+        ])
+        .areas(frame.area());
+        (None, search_area, list_area, footer_area)
+    };
 
+    if let Some(tabs_area) = tabs_area {
+        draw_tabs(frame, app, tabs_area);
+    }
     draw_search_bar(frame, app, search_area);
     draw_task_list(frame, app, list_area);
     draw_footer(frame, app, footer_area);
@@ -40,16 +56,20 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
     }
 }
 
+fn draw_tabs(frame: &mut Frame, app: &App, area: Rect) {
+    let tabs = Tabs::new(build_tab_titles(app))
+        .select(app.selected_tab)
+        .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
+        .divider(Span::raw(""));
+    frame.render_widget(tabs, area);
+}
+
 fn draw_search_bar(frame: &mut Frame, app: &App, area: Rect) {
-    let input = Paragraph::new(Line::from(vec![
-        Span::styled("> ", Style::default().fg(Color::Cyan)),
-        Span::raw(&app.query),
-    ]));
+    let input = Paragraph::new(build_search_line(app));
     frame.render_widget(input, area);
 
     // Place cursor after query text
-    #[expect(clippy::cast_possible_truncation)]
-    frame.set_cursor_position((area.x + 2 + app.query.len() as u16, area.y));
+    frame.set_cursor_position((area.x + search_cursor_offset(app), area.y));
 }
 
 fn draw_task_list(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -84,6 +104,9 @@ fn draw_task_list(frame: &mut Frame, app: &mut App, area: Rect) {
 
 fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
     let text = match app.mode {
+        Mode::Normal if app.has_tabs() => {
+            "↑↓:navigate  Tab/S-Tab:tabs  Enter:actions  Esc:quit  type to filter"
+        }
         Mode::Normal => "↑↓:navigate  Enter:actions  Esc:quit  type to filter",
         Mode::ActionPopup => "↑↓:navigate  Enter:select  Esc:cancel",
     };
@@ -156,6 +179,52 @@ fn draw_action_popup(frame: &mut Frame, app: &App) {
             .title("Action"),
     );
     frame.render_widget(popup, popup_area);
+}
+
+fn build_tab_titles(app: &App) -> Vec<Line<'_>> {
+    app.tabs
+        .iter()
+        .map(|tab| {
+            if tab == "All" {
+                Line::from(tab.as_str())
+            } else {
+                Line::from(Span::styled(
+                    format!("@{tab}"),
+                    Style::default().fg(Color::Blue),
+                ))
+            }
+        })
+        .collect()
+}
+
+fn build_search_line(app: &App) -> Line<'_> {
+    let mut spans = vec![Span::styled("> ", Style::default().fg(Color::Cyan))];
+
+    if let Some(tab) = app.active_tab() {
+        spans.push(Span::styled(
+            format!("@{tab}"),
+            Style::default().fg(Color::Blue).add_modifier(Modifier::DIM),
+        ));
+        spans.push(Span::raw(" "));
+    }
+
+    spans.push(Span::raw(app.query.as_str()));
+
+    Line::from(spans)
+}
+
+fn search_cursor_offset(app: &App) -> u16 {
+    let mut offset = 2_u16;
+    if let Some(tab) = app.active_tab() {
+        #[expect(clippy::cast_possible_truncation)]
+        {
+            offset += (tab.len() + 2) as u16;
+        }
+    }
+    #[expect(clippy::cast_possible_truncation)]
+    {
+        offset + app.query.len() as u16
+    }
 }
 
 /// Build a styled ratatui `Line` for a task (convenience wrapper for non-menu callers)
@@ -384,13 +453,16 @@ fn style_to_ansi_open(style: &Style) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::{io::Write as _, rc::Rc};
+
     use ratatui::{
         style::{Color, Modifier, Style},
         text::{Line, Span},
     };
-    use tasks::Task;
+    use tasks::{Task, TodoFile};
 
     use super::*;
+    use crate::menu::state::{App, MenuSource, MenuTask};
 
     fn today() -> Date {
         chrono::NaiveDate::from_ymd_opt(2026, 3, 18).unwrap()
@@ -398,6 +470,27 @@ mod tests {
 
     fn parse(s: &str) -> Task {
         s.parse().unwrap()
+    }
+
+    fn make_app(lines: &[&str], selected_tab: usize) -> App {
+        let mut todo = tempfile::NamedTempFile::new().unwrap();
+        let mut done = tempfile::NamedTempFile::new().unwrap();
+        writeln!(todo, "placeholder").unwrap();
+        writeln!(done, "placeholder").unwrap();
+        let source = Rc::new(MenuSource::new(
+            TodoFile::new(todo.path(), done.path()).unwrap(),
+            Some("work".to_owned()),
+        ));
+        let tasks = lines
+            .iter()
+            .map(|line| MenuTask {
+                task: line.parse().unwrap(),
+                source: Rc::clone(&source),
+            })
+            .collect();
+        let mut app = App::new(tasks, today(), true);
+        app.selected_tab = selected_tab;
+        app
     }
 
     #[test]
@@ -502,6 +595,53 @@ mod tests {
             .find(|s| s.content.as_ref() == "@work")
             .unwrap();
         assert_eq!(source_span.style.fg, Some(Color::Blue));
+    }
+
+    #[test]
+    fn search_line_shows_dimmed_selected_tab() {
+        let app = make_app(&["Buy milk"], 1);
+        let line = build_search_line(&app);
+        let tab_span = line
+            .spans
+            .iter()
+            .find(|span| span.content.as_ref() == "@work")
+            .unwrap();
+        assert_eq!(tab_span.style.fg, Some(Color::Blue));
+        assert!(tab_span.style.add_modifier.contains(Modifier::DIM));
+    }
+
+    #[test]
+    fn search_line_places_selected_tab_before_query() {
+        let mut app = make_app(&["Buy milk"], 1);
+        app.query = "milk".to_owned();
+
+        let line = build_search_line(&app);
+
+        assert_eq!(line.spans[1].content.as_ref(), "@work");
+        assert_eq!(line.spans[2].content.as_ref(), " ");
+        assert_eq!(line.spans[3].content.as_ref(), "milk");
+    }
+
+    #[test]
+    fn search_line_omits_tab_when_all_selected() {
+        let app = make_app(&["Buy milk"], 0);
+        let line = build_search_line(&app);
+        assert!(
+            line.spans
+                .iter()
+                .all(|span| span.content.as_ref() != "@work")
+        );
+    }
+
+    #[test]
+    fn tab_titles_prefix_projects_with_at() {
+        let app = make_app(&["Buy milk"], 0);
+        let titles = build_tab_titles(&app);
+        assert_eq!(titles[0], Line::from("All"));
+        assert_eq!(
+            titles[1],
+            Line::from(Span::styled("@work", Style::default().fg(Color::Blue)))
+        );
     }
 
     #[test]
