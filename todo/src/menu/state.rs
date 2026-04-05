@@ -1,6 +1,7 @@
 //! Menu TUI state
 
 use std::{
+    cmp::Ordering,
     collections::{BTreeMap, HashSet},
     rc::Rc,
     time::{Duration, Instant},
@@ -10,6 +11,9 @@ use ratatui::widgets::ListState;
 use tasks::{Date, TagKind, Task, TodoFile};
 
 const TOAST_DURATION: Duration = Duration::from_secs(5);
+const FUZZY_WEIGHT: f64 = 0.75;
+const URGENCY_WEIGHT: f64 = 0.25;
+const _: () = assert!((FUZZY_WEIGHT + URGENCY_WEIGHT - 1.0).abs() < 1e-9);
 
 /// Active interaction mode
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -199,6 +203,7 @@ impl App {
                 .map(|(i, _)| i)
                 .collect();
         } else {
+            // Collect (task_index, fuzzy_score) for all matches
             let mut scored: Vec<(usize, i64)> = self
                 .tasks
                 .iter()
@@ -221,8 +226,40 @@ impl App {
                         .map(|score| (i, score))
                 })
                 .collect();
+
+            // Sort by fuzzy score descending to assign fuzzy ranks
             scored.sort_by(|a, b| b.1.cmp(&a.1));
-            self.visible = scored.into_iter().map(|(i, _)| i).collect();
+
+            let n = scored.len();
+            if n <= 1 {
+                self.visible = scored.into_iter().map(|(i, _)| i).collect();
+            } else {
+                // Assign fuzzy rank (0 = best match) and blend with urgency
+                // rank (task_index in the already urgency-sorted vec).
+                // Both ranks are normalized to [0.0, 1.0] and blended.
+                #[expect(clippy::cast_precision_loss)]
+                let blended = {
+                    let max_urgency =
+                        scored.iter().map(|(idx, _)| *idx).max().unwrap_or(0).max(1) as f64;
+                    let max_fuzzy = (n - 1).max(1) as f64;
+
+                    let mut blended: Vec<(usize, f64)> = scored
+                        .iter()
+                        .enumerate()
+                        .map(|(fuzzy_rank, &(task_idx, _))| {
+                            let fuzzy_norm = fuzzy_rank as f64 / max_fuzzy;
+                            let urgency_norm = task_idx as f64 / max_urgency;
+                            (
+                                task_idx,
+                                FUZZY_WEIGHT * fuzzy_norm + URGENCY_WEIGHT * urgency_norm,
+                            )
+                        })
+                        .collect();
+                    blended.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
+                    blended
+                };
+                self.visible = blended.into_iter().map(|(i, _)| i).collect();
+            }
         }
 
         // Clamp selection
@@ -575,5 +612,72 @@ mod tests {
         ));
         assert!(app.expire_toast());
         assert!(app.toast.is_none());
+    }
+
+    #[test]
+    fn refilter_blends_fuzzy_and_urgency_order() {
+        // Tasks are in urgency order: index 0 is most urgent.
+        // "Buy milk" (idx 0) is an exact match for "milk" but less urgent
+        // would be if it were at a higher index. Place it so urgency and
+        // fuzzy disagree to verify blending.
+        let mut app = App::new(
+            make_tasks(&[
+                "Walk the dog",      // idx 0 — most urgent, weak match for "milk"
+                "Buy milk",          // idx 1 — medium urgency, strong match
+                "Drink almond milk", // idx 2 — least urgent, strong match
+            ]),
+            today(),
+            false,
+        );
+
+        app.query = "milk".to_owned();
+        app.refilter();
+
+        // Both milk tasks should appear; the exact-ish match "Buy milk"
+        // should still rank first because it has the best fuzzy score and
+        // a decent urgency position.
+        let texts: Vec<&str> = app
+            .visible
+            .iter()
+            .filter_map(|i| app.tasks.get(*i))
+            .map(|mt| mt.task.text.as_str())
+            .collect();
+        assert!(texts.contains(&"Buy milk"));
+        assert!(texts.contains(&"Drink almond milk"));
+        assert_eq!(texts[0], "Buy milk");
+    }
+
+    #[test]
+    fn refilter_urgency_breaks_tie_on_equal_fuzzy() {
+        // Two tasks with equally strong matches; urgency (position) should
+        // break the tie in favor of the earlier (more urgent) task.
+        let mut app = App::new(
+            make_tasks(&[
+                "Buy milk today",    // idx 0 — more urgent
+                "Buy milk tomorrow", // idx 1 — less urgent
+            ]),
+            today(),
+            false,
+        );
+
+        app.query = "Buy milk".to_owned();
+        app.refilter();
+
+        let texts: Vec<&str> = app
+            .visible
+            .iter()
+            .filter_map(|i| app.tasks.get(*i))
+            .map(|mt| mt.task.text.as_str())
+            .collect();
+        assert_eq!(texts, vec!["Buy milk today", "Buy milk tomorrow"]);
+    }
+
+    #[test]
+    fn refilter_single_match_returns_it() {
+        let mut app = App::new(make_tasks(&["Walk the dog", "Buy milk"]), today(), false);
+        app.query = "milk".to_owned();
+        app.refilter();
+        assert_eq!(app.visible.len(), 1);
+        assert_eq!(app.tasks[app.visible[0]].task.text, "Buy milk");
     }
 }
