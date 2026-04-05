@@ -60,7 +60,11 @@ fn draw_tabs(frame: &mut Frame, app: &App, area: Rect) {
     let tabs = Tabs::new(build_tab_titles(app))
         .select(app.selected_tab)
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
-        .divider(Span::raw(""));
+        .divider(Span::styled(
+            "│",
+            Style::default().add_modifier(Modifier::DIM),
+        ))
+        .padding("", "");
     frame.render_widget(tabs, area);
 }
 
@@ -189,9 +193,9 @@ fn build_tab_titles(app: &App) -> Vec<Line<'_>> {
         .map(|tab| {
             let style = tab_style(app, tab, &all_tasks);
             if tab == "All" {
-                Line::from(Span::styled(tab.as_str(), style))
+                Line::from(Span::styled(format!(" {tab} "), style))
             } else {
-                Line::from(Span::styled(format!("@{tab}"), style))
+                Line::from(Span::styled(format!(" @{tab} "), style))
             }
         })
         .collect()
@@ -666,10 +670,13 @@ mod tests {
     fn tab_titles_prefix_projects_with_at() {
         let app = make_app(&["Buy milk"], 0);
         let titles = build_tab_titles(&app);
-        assert_eq!(titles[0], Line::from(Span::styled("All", Style::default())));
+        assert_eq!(
+            titles[0],
+            Line::from(Span::styled(" All ", Style::default()))
+        );
         assert_eq!(
             titles[1],
-            Line::from(Span::styled("@work", Style::default().fg(Color::Blue)))
+            Line::from(Span::styled(" @work ", Style::default().fg(Color::Blue)))
         );
     }
 
@@ -678,7 +685,7 @@ mod tests {
         let app = make_app_with_source_tag(&["x 2026-03-17 @work Done"], 0, None);
         let titles = build_tab_titles(&app);
         let work_span = &titles[1].spans[0];
-        assert_eq!(work_span.content.as_ref(), "@work");
+        assert_eq!(work_span.content.as_ref(), " @work ");
         assert_eq!(work_span.style.fg, Some(Color::Blue));
         assert!(work_span.style.add_modifier.contains(Modifier::DIM));
     }
@@ -688,7 +695,7 @@ mod tests {
         let app = make_app_with_source_tag(&["@work Follow up dep:1", "Blocker id:1"], 0, None);
         let titles = build_tab_titles(&app);
         let work_span = &titles[1].spans[0];
-        assert_eq!(work_span.content.as_ref(), "@work");
+        assert_eq!(work_span.content.as_ref(), " @work ");
         assert_eq!(work_span.style.fg, Some(Color::Blue));
         assert!(work_span.style.add_modifier.contains(Modifier::DIM));
     }
@@ -702,7 +709,7 @@ mod tests {
         );
         let titles = build_tab_titles(&app);
         let work_span = &titles[1].spans[0];
-        assert_eq!(work_span.content.as_ref(), "@work");
+        assert_eq!(work_span.content.as_ref(), " @work ");
         assert_eq!(work_span.style.fg, Some(Color::Blue));
         assert!(!work_span.style.add_modifier.contains(Modifier::DIM));
     }
