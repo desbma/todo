@@ -50,10 +50,10 @@ fn watch_exe(exe_path: &Path) -> anyhow::Result<(Box<dyn notify::Watcher>, mpsc:
                 match evt.kind {
                     notify::EventKind::Create(_)
                     | notify::EventKind::Modify(_)
-                    | notify::EventKind::Remove(_) => {
-                        if evt.paths.contains(&exe_path) {
-                            let _ = event_tx.send(());
-                        }
+                    | notify::EventKind::Remove(_)
+                        if evt.paths.contains(&exe_path) =>
+                    {
+                        let _ = event_tx.send(());
                     }
                     _ if evt.need_rescan() => {
                         let _ = event_tx.send(());

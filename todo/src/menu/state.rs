@@ -1,7 +1,7 @@
 //! Menu TUI state
 
 use std::{
-    cmp::Ordering,
+    cmp::{self, Ordering},
     collections::{BTreeMap, HashSet},
     rc::Rc,
     time::{Duration, Instant},
@@ -231,7 +231,7 @@ impl App {
                 .collect();
 
             // Sort by fuzzy score descending to assign fuzzy ranks
-            scored.sort_by(|a, b| b.1.cmp(&a.1));
+            scored.sort_by_key(|b| cmp::Reverse(b.1));
 
             let n = scored.len();
             if n <= 1 {

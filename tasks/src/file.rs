@@ -102,10 +102,10 @@ impl TodoFile {
                     match evt.kind {
                         notify::EventKind::Create(_)
                         | notify::EventKind::Modify(_)
-                        | notify::EventKind::Remove(_) => {
-                            if evt.paths.contains(&todo_path) {
-                                let _ = event_tx.try_send(());
-                            }
+                        | notify::EventKind::Remove(_)
+                            if evt.paths.contains(&todo_path) =>
+                        {
+                            let _ = event_tx.try_send(());
                         }
                         _ if evt.need_rescan() => {
                             let _ = event_tx.try_send(());
@@ -269,7 +269,7 @@ impl TodoFile {
             // Read done lines
             let done_lines: Vec<_> = fs::read_to_string(&self.done_path)?
                 .lines()
-                .map(ToString::to_string)
+                .map(str::to_owned)
                 .collect();
 
             // Split done file
@@ -460,7 +460,7 @@ impl TodoFile {
         let r = reader
             .lines()
             .flat_map(|r| r.map(|l| l.parse()))
-            .filter(|r| r.as_ref().map(f).unwrap_or(true))
+            .filter(|r| r.as_ref().map_or(true, f))
             .collect::<Result<_, _>>()?;
         Ok(r)
     }
