@@ -97,6 +97,8 @@ pub(crate) struct App {
     pub multi_source: bool,
     /// Whether the executable file has changed and needs re-exec after debounce
     pub pending_exe_reload_at: Option<Instant>,
+    /// Height of the task list area (updated each frame by the renderer)
+    pub list_height: u16,
 }
 
 impl App {
@@ -118,6 +120,7 @@ impl App {
             toast: None,
             multi_source,
             pending_exe_reload_at: None,
+            list_height: 0,
         };
         app.refilter();
         if !app.visible.is_empty() {

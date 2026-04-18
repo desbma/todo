@@ -85,6 +85,16 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) -> Effect {
             }
             Effect::None
         }
+        KeyCode::PageUp => {
+            let page = i32::from(app.list_height).max(1);
+            move_selection(app, -page);
+            Effect::None
+        }
+        KeyCode::PageDown => {
+            let page = i32::from(app.list_height).max(1);
+            move_selection(app, page);
+            Effect::None
+        }
         KeyCode::Tab => {
             app.select_next_tab();
             Effect::None
@@ -344,6 +354,44 @@ mod tests {
         let mut app = make_app(&["Task A", "Task B", "Task C"]);
         handle_key(&mut app, key(KeyCode::End));
         assert_eq!(app.list_state.selected(), Some(2));
+    }
+
+    #[test]
+    fn pagedown_moves_by_page() {
+        let mut app = make_app(&[
+            "Task A", "Task B", "Task C", "Task D", "Task E", "Task F", "Task G", "Task H",
+        ]);
+        app.list_height = 3;
+        handle_key(&mut app, key(KeyCode::PageDown));
+        assert_eq!(app.list_state.selected(), Some(3));
+    }
+
+    #[test]
+    fn pageup_moves_by_page() {
+        let mut app = make_app(&[
+            "Task A", "Task B", "Task C", "Task D", "Task E", "Task F", "Task G", "Task H",
+        ]);
+        app.list_height = 3;
+        app.list_state.select(Some(5));
+        handle_key(&mut app, key(KeyCode::PageUp));
+        assert_eq!(app.list_state.selected(), Some(2));
+    }
+
+    #[test]
+    fn pagedown_clamps_at_end() {
+        let mut app = make_app(&["Task A", "Task B", "Task C"]);
+        app.list_height = 10;
+        handle_key(&mut app, key(KeyCode::PageDown));
+        assert_eq!(app.list_state.selected(), Some(2));
+    }
+
+    #[test]
+    fn pageup_clamps_at_start() {
+        let mut app = make_app(&["Task A", "Task B", "Task C"]);
+        app.list_height = 10;
+        app.list_state.select(Some(1));
+        handle_key(&mut app, key(KeyCode::PageUp));
+        assert_eq!(app.list_state.selected(), Some(0));
     }
 
     #[test]

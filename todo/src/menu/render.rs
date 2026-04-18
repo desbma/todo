@@ -99,6 +99,8 @@ fn draw_task_list(frame: &mut Frame, app: &mut App, area: Rect) {
         })
         .collect();
 
+    app.list_height = area.height;
+
     let list = List::new(items)
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
         .highlight_spacing(HighlightSpacing::Always);
