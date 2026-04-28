@@ -59,6 +59,30 @@ impl Tag {
     }
 }
 
+/// Stable identifier of a task across edits
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub enum Identifier {
+    Id(String),
+    Text(String),
+}
+
+/// Schedule anchor for a recurring occurrence
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub enum RecurringAnchor {
+    Due(String),
+    Threshold(String),
+    DueAndThreshold { due: String, threshold: String },
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub enum MergeKey {
+    NonRecurring(Identifier),
+    Recurring {
+        identifier: Identifier,
+        anchor: RecurringAnchor,
+    },
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum CreationCompletion {
     Pending {
@@ -161,13 +185,13 @@ impl Task {
     }
 
     #[must_use]
-    fn id(&self) -> Option<String> {
+    pub fn id(&self) -> Option<String> {
         self.attributes
             .iter()
             .find(|a| a.0 == "id")
             .map(|a| a.1.clone())
             .or_else(|| {
-                // Fallback to string generated from first tag's 3 first letters, and first letter of each text word
+                // Fall back to a tag/text-derived id
                 if let Some(first_tag) = self.tags.first().map(|t| {
                     let mut v = t.value.to_ascii_lowercase();
                     v.truncate(3);
@@ -184,6 +208,128 @@ impl Task {
                     None
                 }
             })
+    }
+
+    #[must_use]
+    fn identifier(&self) -> Identifier {
+        self.attribute("id").map_or_else(
+            || Identifier::Text(self.text.clone()),
+            |id| Identifier::Id(id.to_owned()),
+        )
+    }
+
+    #[must_use]
+    pub fn merge_key(&self) -> Option<MergeKey> {
+        let is_recurring = self
+            .attributes
+            .iter()
+            .any(|(k, _)| RECURRENCE_TAG_KEYS.contains(&k.as_str()));
+        if is_recurring {
+            let due = self.attribute("due").map(str::to_owned);
+            let threshold = self.attribute("t").map(str::to_owned);
+            let anchor = match (due, threshold) {
+                (Some(due), Some(threshold)) => RecurringAnchor::DueAndThreshold { due, threshold },
+                (Some(due), None) => RecurringAnchor::Due(due),
+                (None, Some(threshold)) => RecurringAnchor::Threshold(threshold),
+                (None, None) => return None,
+            };
+            Some(MergeKey::Recurring {
+                identifier: self.identifier(),
+                anchor,
+            })
+        } else {
+            Some(MergeKey::NonRecurring(self.identifier()))
+        }
+    }
+
+    /// Merge two versions of the same task
+    #[must_use]
+    pub fn merge(&self, other: &Self) -> Self {
+        if self == other {
+            return self.clone();
+        }
+
+        let (status, priority) = match (&self.status, &other.status) {
+            (CreationCompletion::Completed { .. }, CreationCompletion::Pending { .. }) => {
+                (self.status.clone(), self.priority)
+            }
+            (CreationCompletion::Pending { .. }, CreationCompletion::Completed { .. }) => {
+                (other.status.clone(), other.priority)
+            }
+            (
+                CreationCompletion::Completed {
+                    created: local_created,
+                    completed: local_completed,
+                },
+                CreationCompletion::Completed {
+                    created: other_created,
+                    completed: other_completed,
+                },
+            ) => {
+                let completed = *local_completed.max(other_completed);
+                let created = match (local_created, other_created) {
+                    (Some(a), Some(b)) => Some(*a.min(b)),
+                    (a, b) => a.or(*b),
+                };
+                (
+                    CreationCompletion::Completed { created, completed },
+                    self.priority.or(other.priority),
+                )
+            }
+            (
+                CreationCompletion::Pending {
+                    created: local_created,
+                },
+                CreationCompletion::Pending {
+                    created: other_created,
+                },
+            ) => {
+                let created = match (local_created, other_created) {
+                    (Some(a), Some(b)) => Some(*a.min(b)),
+                    (a, b) => a.or(*b),
+                };
+                (
+                    CreationCompletion::Pending { created },
+                    match (self.priority, other.priority) {
+                        (Some(a), Some(b)) => Some(a.min(b)),
+                        (a, b) => a.or(b),
+                    },
+                )
+            }
+        };
+
+        let mut tags = self.tags.clone();
+        for ct in &other.tags {
+            if !tags.contains(ct) {
+                tags.push(ct.clone());
+            }
+        }
+
+        let mut attributes = self.attributes.clone();
+        for (ck, cv) in &other.attributes {
+            if let Some(existing) = attributes.iter_mut().find(|(k, _)| k == ck) {
+                if existing.1 != *cv && (cv.len() > existing.1.len() || cv > &existing.1) {
+                    existing.1.clone_from(cv);
+                }
+            } else {
+                attributes.push((ck.clone(), cv.clone()));
+            }
+        }
+
+        let text = if other.text.len() > self.text.len() {
+            other.text.clone()
+        } else {
+            self.text.clone()
+        };
+
+        Self {
+            priority,
+            status,
+            tags,
+            attributes,
+            text,
+            index: None,
+        }
     }
 
     #[must_use]

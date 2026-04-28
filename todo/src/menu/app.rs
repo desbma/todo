@@ -208,8 +208,8 @@ fn next_msg(
     Ok(Msg::Tick)
 }
 
-/// Reload tasks from all sources. If any sources are pending (changed in the
-/// background by the file watcher), show a toast naming the reloaded files.
+/// Reload tasks from all sources
+/// Show a toast for pending watcher-triggered reloads
 fn reload_with_toast(app: &mut App, sources: &[Rc<MenuSource>]) -> anyhow::Result<()> {
     if !app.pending_reload_sources.is_empty() {
         let paths: Vec<_> = app
@@ -262,9 +262,8 @@ fn run_action(
         }
     }
 
-    // Reload all sources after any action, and drain file-watcher
-    // events so we don't show a spurious "reloaded" toast from our
-    // own write.
+    // Reload all sources and drain watcher events to avoid a spurious
+    // "reloaded" toast from our own write
     let tasks = load_all_tasks(sources)?;
     app.reload_tasks(tasks);
     for rx in file_event_rxs {
@@ -288,7 +287,7 @@ mod tests {
         chrono::NaiveDate::from_ymd_opt(2026, 3, 18).unwrap()
     }
 
-    /// Returns the source and keeps the temp files alive via the returned handles.
+    /// Create a source and keep the temp files alive via returned handles
     fn make_source() -> (
         Rc<MenuSource>,
         tempfile::NamedTempFile,

@@ -36,6 +36,9 @@
 - When formatting paths in error messages or logs, always use debug formatting (`{:?}`) rather than `.display()` to preserve non-UTF-8 safety and show quoting
 - Prefer `log` macros for logging; no `dbg!` or `todo!`
 - Prefer `default-features = false` for dependencies
+- Comments (including doc comments):
+  - Keep comments concise: prefer a short summary over restating implementation details, only mention exceptional cases when they affect behavior, and are not already conveyed by the types used, function signature, or code just below
+  - Omit trailing periods in single-sentence comments
 - In tests:
   - Use `use super::*;` to import from the parent module
   - Prefer `unwrap()` over `expect()` for conciseness
@@ -43,8 +46,3 @@
   - Prefer full type comparisons with `assert_eq!` over selectively checking nested attributes or unpacking; tag types with `#[cfg_attr(test, derive(Eq, PartialEq))]` if needed
   - Do not add section-separator comments (e.g., `// --- Some Section ---`) in test modules — test names are descriptive enough
 - When moving or refactoring code, never remove comment lines — preserve all comments and move them along with the code they document
-
-## Version control
-
-- This repository uses the jujutsu VCS. **Never use any `jj` command that modifies the repository**.
-- You can also use read-only git commands for inspecting repository state. **Never use any git command that modifies the repository**.

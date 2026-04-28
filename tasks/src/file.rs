@@ -1,6 +1,7 @@
 //! Todo.txt file handling
 
 use std::{
+    borrow::Borrow,
     env,
     fs::{self, File, OpenOptions},
     io::{self, BufRead as _, BufReader, BufWriter, Read as _, Write},
@@ -11,6 +12,7 @@ use std::{
 
 use chrono::Duration;
 use notify::Watcher;
+use tempfile::NamedTempFile;
 
 use crate::task::{CreationCompletion, Date, Task};
 
@@ -56,38 +58,46 @@ impl TodoFile {
     }
 
     pub fn load_tasks(&self) -> anyhow::Result<Vec<Task>> {
-        let file = File::open(&self.todo_path)?;
-        let reader = BufReader::new(file);
-        reader
-            .lines()
-            .flat_map(|r| r.map(|l| l.parse()))
-            .enumerate()
-            .map(|(i, r)| {
-                r.map(|mut t: Task| {
-                    t.index = Some(i);
-                    t
-                })
-            })
-            .collect::<Result<_, _>>()
+        Self::load_tasks_from_path(&self.todo_path, true)
+    }
+
+    /// Load a task file without setting task indexes
+    pub(crate) fn load_tasks_unindexed(path: &Path) -> anyhow::Result<Vec<Task>> {
+        Self::load_tasks_from_path(path, false)
+    }
+
+    /// Load both todo and done files without setting task indexes
+    pub(crate) fn load_all_tasks_unindexed(&self) -> anyhow::Result<(Vec<Task>, Vec<Task>)> {
+        Ok((
+            Self::load_tasks_unindexed(&self.todo_path)?,
+            Self::load_tasks_unindexed(&self.done_path)?,
+        ))
     }
 
     pub fn save_tasks(&self, tasks: Vec<Task>) -> anyhow::Result<()> {
-        // Create new file
-        let new_todo_file = tempfile::NamedTempFile::new_in(self.todo_path.parent().unwrap())?;
-        let mut new_todo_file_writer = BufWriter::new(new_todo_file);
-
-        // Write tasks to it
-        for task in tasks {
-            Self::write_task(&mut new_todo_file_writer, &task)?;
-        }
-
         // Backup
         self.backup()?;
 
         // Overwrite task file
-        #[expect(clippy::shadow_unrelated)]
-        let new_todo_file = new_todo_file_writer.into_inner()?;
+        let new_todo_file = Self::write_tasks_temp(&self.todo_path, tasks)?;
         new_todo_file.persist(&self.todo_path)?;
+
+        Ok(())
+    }
+
+    /// Overwrite both todo and done files from already-separated task lists
+    pub(crate) fn save_all_tasks(
+        &self,
+        todo_tasks: &[Task],
+        done_tasks: &[Task],
+    ) -> anyhow::Result<()> {
+        let new_todo_file = Self::write_tasks_temp(&self.todo_path, todo_tasks.iter())?;
+        let new_done_file = Self::write_tasks_temp(&self.done_path, done_tasks.iter())?;
+
+        self.backup()?;
+
+        new_todo_file.persist(&self.todo_path)?;
+        new_done_file.persist(&self.done_path)?;
 
         Ok(())
     }
@@ -142,7 +152,7 @@ impl TodoFile {
 
     pub fn edit(&self, task: &Task) -> anyhow::Result<()> {
         // Create temporary copy
-        let tmp_todo_file = tempfile::NamedTempFile::new_in(self.todo_path.parent().unwrap())?;
+        let tmp_todo_file = NamedTempFile::new_in(self.todo_path.parent().unwrap())?;
         fs::copy(&self.todo_path, tmp_todo_file.path())?;
 
         // Edit it
@@ -166,7 +176,7 @@ impl TodoFile {
 
     pub fn start(&self, task: &Task, today: Date) -> anyhow::Result<()> {
         // Create new file
-        let new_todo_file = tempfile::NamedTempFile::new_in(self.todo_path.parent().unwrap())?;
+        let new_todo_file = NamedTempFile::new_in(self.todo_path.parent().unwrap())?;
         let mut new_todo_file_writer = BufWriter::new(new_todo_file);
 
         // Auto recur
@@ -197,7 +207,7 @@ impl TodoFile {
 
     pub fn set_done(&self, mut task: Task, today: Date) -> anyhow::Result<()> {
         // Create new file
-        let new_todo_file = tempfile::NamedTempFile::new_in(self.todo_path.parent().unwrap())?;
+        let new_todo_file = NamedTempFile::new_in(self.todo_path.parent().unwrap())?;
         let mut new_todo_file_writer = BufWriter::new(new_todo_file);
 
         // Auto recur
@@ -292,8 +302,7 @@ impl TodoFile {
             };
 
             // Create new compressed file
-            let new_compressed_file =
-                tempfile::NamedTempFile::new_in(compressed_filepath.parent().unwrap())?;
+            let new_compressed_file = NamedTempFile::new_in(compressed_filepath.parent().unwrap())?;
             let mut new_compressed_file_writer =
                 zstd::Encoder::new(BufWriter::new(new_compressed_file), ZSTD_COMPRESSION_LEVEL)?;
 
@@ -308,7 +317,7 @@ impl TodoFile {
             let compressed_task_count = to_compress_lines.len();
 
             // Create new done file
-            let new_done_file = tempfile::NamedTempFile::new_in(self.done_path.parent().unwrap())?;
+            let new_done_file = NamedTempFile::new_in(self.done_path.parent().unwrap())?;
             let mut new_done_file_writer = BufWriter::new(new_done_file);
 
             // Write done lines
@@ -448,6 +457,37 @@ impl TodoFile {
         W: Write,
     {
         writeln!(writer, "{}", task.to_todotxt_line())
+    }
+
+    fn load_tasks_from_path(path: &Path, set_index: bool) -> anyhow::Result<Vec<Task>> {
+        let file = File::open(path)?;
+        let reader = BufReader::new(file);
+        let mut tasks: Vec<Task> = reader
+            .lines()
+            .flat_map(|r| r.map(|l| l.parse()))
+            .collect::<Result<_, _>>()?;
+        if set_index {
+            for (index, task) in tasks.iter_mut().enumerate() {
+                task.index = Some(index);
+            }
+        }
+        Ok(tasks)
+    }
+
+    fn write_tasks_temp<T, I>(path: &Path, tasks: I) -> anyhow::Result<NamedTempFile>
+    where
+        T: Borrow<Task>,
+        I: IntoIterator<Item = T>,
+    {
+        let parent = path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("Cannot determine parent of {path:?}"))?;
+        let new_file = NamedTempFile::new_in(parent)?;
+        let mut writer = BufWriter::new(new_file);
+        for task in tasks {
+            Self::write_task(&mut writer, task.borrow())?;
+        }
+        Ok(writer.into_inner()?)
     }
 
     pub fn filter_all<F>(&self, f: F) -> anyhow::Result<Vec<Task>>

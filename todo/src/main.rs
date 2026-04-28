@@ -275,6 +275,18 @@ fn main() -> anyhow::Result<()> {
                 print_styled_task(task, today, &tasks);
             }
         }
+        cl::Action::ResolveConflict {
+            todo_file,
+            done_file,
+            conflicts,
+        } => {
+            tasks::merge::resolve_conflict(
+                &todo_file,
+                &done_file,
+                conflicts.todo_conflict.as_deref(),
+                conflicts.done_conflict.as_deref(),
+            )?;
+        }
         cl::Action::Undo { files } => {
             let task_files = resolve_files(&files)?;
             let task_file = most_recently_modified(task_files)?;

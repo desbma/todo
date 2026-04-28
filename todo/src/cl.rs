@@ -10,6 +10,17 @@ pub(crate) struct Files {
     pub files: Vec<PathBuf>,
 }
 
+#[derive(clap::Args, Debug)]
+#[group(required = true, multiple = true)]
+pub(crate) struct ConflictPaths {
+    /// Path to the conflict copy of `todo.txt`
+    #[arg(long)]
+    pub todo_conflict: Option<PathBuf>,
+    /// Path to the conflict copy of `done.txt`
+    #[arg(long)]
+    pub done_conflict: Option<PathBuf>,
+}
+
 #[derive(Parser, Debug)]
 #[command(version, about)]
 pub(crate) enum Action {
@@ -58,6 +69,15 @@ pub(crate) enum Action {
         days: usize,
         #[command(flatten)]
         files: Files,
+    },
+    /// Resolve a file sync conflict
+    ResolveConflict {
+        /// Path to the local todo.txt file
+        todo_file: PathBuf,
+        /// Path to the local done.txt file
+        done_file: PathBuf,
+        #[command(flatten)]
+        conflicts: ConflictPaths,
     },
     /// Undo last action
     Undo {

@@ -237,9 +237,8 @@ impl App {
             if n <= 1 {
                 self.visible = scored.into_iter().map(|(i, _)| i).collect();
             } else {
-                // Assign fuzzy rank (0 = best match) and blend with urgency
-                // rank (task_index in the already urgency-sorted vec).
-                // Both ranks are normalized to [0.0, 1.0] and blended.
+                // Blend fuzzy rank (0 = best match) with urgency rank
+                // Both ranks are normalized to [0.0, 1.0]
                 #[expect(clippy::cast_precision_loss)]
                 let blended = {
                     let max_urgency =
@@ -619,10 +618,7 @@ mod tests {
 
     #[test]
     fn refilter_blends_fuzzy_and_urgency_order() {
-        // Tasks are in urgency order: index 0 is most urgent.
-        // "Buy milk" (idx 0) is an exact match for "milk" but less urgent
-        // would be if it were at a higher index. Place it so urgency and
-        // fuzzy disagree to verify blending.
+        // Arrange tasks so urgency and fuzzy score disagree
         let mut app = App::new(
             make_tasks(&[
                 "Walk the dog",      // idx 0 — most urgent, weak match for "milk"
@@ -636,9 +632,7 @@ mod tests {
         app.query = "milk".to_owned();
         app.refilter();
 
-        // Both milk tasks should appear; the exact-ish match "Buy milk"
-        // should still rank first because it has the best fuzzy score and
-        // a decent urgency position.
+        // The exact-ish match should still rank first
         let texts: Vec<&str> = app
             .visible
             .iter()
@@ -652,8 +646,7 @@ mod tests {
 
     #[test]
     fn refilter_urgency_breaks_tie_on_equal_fuzzy() {
-        // Two tasks with equally strong matches; urgency (position) should
-        // break the tie in favor of the earlier (more urgent) task.
+        // Urgency should break the tie
         let mut app = App::new(
             make_tasks(&[
                 "Buy milk today",    // idx 0 — more urgent
