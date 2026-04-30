@@ -29,6 +29,7 @@
 
 - Clippy pedantic + many restriction lints enabled (see `Cargo.toml` `[workspace.lints.clippy]`)
 - Imports:
+  - Place all `use` statements at the top of the file; do not put them inside functions, `impl` blocks, or other inner scopes (the only exception is inside `#[cfg(...)]` modules such as `mod tests`, where the imports go at the top of that module)
   - Group std imports first, then external crates, then local modules
   - Never use fully-qualified paths (e.g., `std::path::Path` or `crate::ui::foo()`) in code; always import namespaces via `use` statements and refer to symbols by their short name
   - Import deep `std` namespaces aggressively (e.g., `use std::path::PathBuf;`, `use std::collections::HashMap;`), except for namespaces like `io` or `fs` whose symbols have very common names that may collide — import those at the module level instead (e.g., `use std::fs;`)

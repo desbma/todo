@@ -8,6 +8,7 @@ use std::{
 };
 
 use ratatui::widgets::ListState;
+use strum::IntoEnumIterator as _;
 use tasks::{Date, TagKind, Task, TodoFile};
 
 const TOAST_DURATION: Duration = Duration::from_secs(5);
@@ -132,6 +133,16 @@ impl App {
     /// Currently selected task (if any)
     pub(crate) fn selected_task(&self) -> Option<&Task> {
         self.selected_menu_task().map(|mt| &mt.task)
+    }
+
+    /// Actions available in the popup for the currently selected task
+    pub(crate) fn available_actions(&self) -> Vec<TaskAction> {
+        let started = self
+            .selected_task()
+            .is_some_and(|t| t.started_date().is_some());
+        TaskAction::iter()
+            .filter(|action| !(started && *action == TaskAction::Start))
+            .collect()
     }
 
     /// Currently selected menu task with source (if any)
@@ -666,6 +677,24 @@ mod tests {
             .map(|mt| mt.task.text.as_str())
             .collect();
         assert_eq!(texts, vec!["Buy milk today", "Buy milk tomorrow"]);
+    }
+
+    #[test]
+    fn available_actions_excludes_start_when_task_started() {
+        let app = App::new(make_tasks(&["Buy milk started:2026-03-18"]), today(), false);
+        assert_eq!(
+            app.available_actions(),
+            vec![TaskAction::MarkDone, TaskAction::Edit],
+        );
+    }
+
+    #[test]
+    fn available_actions_includes_start_when_task_not_started() {
+        let app = App::new(make_tasks(&["Buy milk"]), today(), false);
+        assert_eq!(
+            app.available_actions(),
+            vec![TaskAction::MarkDone, TaskAction::Edit, TaskAction::Start],
+        );
     }
 
     #[test]

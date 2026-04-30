@@ -14,10 +14,9 @@ use ratatui::{
         Tabs,
     },
 };
-use strum::{EnumCount as _, IntoEnumIterator as _};
 use tasks::{CreationCompletion, Date, TagKind, Task};
 
-use super::state::{App, Mode, TaskAction};
+use super::state::{App, Mode};
 
 /// Render the full UI
 pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
@@ -150,10 +149,11 @@ fn draw_toast(frame: &mut Frame, app: &App) {
 }
 
 fn draw_action_popup(frame: &mut Frame, app: &App) {
+    let actions = app.available_actions();
     let area = frame.area();
     let popup_width = 24_u16;
     #[expect(clippy::cast_possible_truncation)]
-    let popup_height = (TaskAction::COUNT as u16) + 2; // +2 for borders
+    let popup_height = (actions.len() as u16) + 2; // +2 for borders
     let x = area.width.saturating_sub(popup_width) / 2 + area.x;
     let y = area.height.saturating_sub(popup_height) / 2 + area.y;
     let popup_area = Rect::new(
@@ -165,7 +165,8 @@ fn draw_action_popup(frame: &mut Frame, app: &App) {
 
     frame.render_widget(Clear, popup_area);
 
-    let items: Vec<ListItem> = TaskAction::iter()
+    let items: Vec<ListItem> = actions
+        .iter()
         .enumerate()
         .map(|(i, action)| {
             let style = if i == app.action_index {

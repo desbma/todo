@@ -3,7 +3,6 @@
 use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use strum::{EnumCount as _, IntoEnumIterator as _};
 
 use super::state::{App, Mode, TaskAction};
 
@@ -134,14 +133,14 @@ fn handle_key_popup(app: &mut App, key: KeyEvent) -> Effect {
             Effect::None
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            if app.action_index < TaskAction::COUNT - 1 {
+            if app.action_index + 1 < app.available_actions().len() {
                 app.action_index += 1;
             }
             Effect::None
         }
         KeyCode::Enter => {
             app.mode = Mode::Normal;
-            if let Some(action) = TaskAction::iter().nth(app.action_index) {
+            if let Some(action) = app.available_actions().get(app.action_index).copied() {
                 Effect::PerformAction(action)
             } else {
                 Effect::None
@@ -213,6 +212,7 @@ mod tests {
     use std::{io::Write as _, rc::Rc, time::Instant};
 
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use strum::EnumCount as _;
     use tasks::TodoFile;
 
     use super::*;
