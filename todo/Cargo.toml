@@ -9,6 +9,7 @@ edition = "2024"
 anyhow = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
+copypasta = { workspace = true }
 crossbeam-channel = { workspace = true }
 crossterm = { workspace = true }
 deunicode = { workspace = true }

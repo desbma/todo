@@ -31,6 +31,7 @@ pub(crate) enum TaskAction {
     Edit,
     Start,
     RunCommand(String),
+    CopyCommand(String),
 }
 
 impl TaskAction {
@@ -40,6 +41,7 @@ impl TaskAction {
             Self::Edit => "Edit".to_owned(),
             Self::Start => "Start".to_owned(),
             Self::RunCommand(cmd) => format!("Run command `{cmd}`"),
+            Self::CopyCommand(cmd) => format!("Copy command `{cmd}` to clipboard"),
         }
     }
 }
@@ -165,6 +167,7 @@ impl App {
             actions.push(TaskAction::Start);
         }
         for cmd in extract_commands(&task.text) {
+            actions.push(TaskAction::CopyCommand(cmd.clone()));
             actions.push(TaskAction::RunCommand(cmd));
         }
         actions
@@ -735,7 +738,9 @@ mod tests {
                 TaskAction::MarkDone,
                 TaskAction::Edit,
                 TaskAction::Start,
+                TaskAction::CopyCommand("ls -la".to_owned()),
                 TaskAction::RunCommand("ls -la".to_owned()),
+                TaskAction::CopyCommand("whoami".to_owned()),
                 TaskAction::RunCommand("whoami".to_owned()),
             ],
         );
@@ -745,6 +750,12 @@ mod tests {
     fn run_command_action_label_includes_command() {
         let action = TaskAction::RunCommand("ls -la".to_owned());
         assert_eq!(action.label(), "Run command `ls -la`");
+    }
+
+    #[test]
+    fn copy_command_action_label_includes_command() {
+        let action = TaskAction::CopyCommand("ls -la".to_owned());
+        assert_eq!(action.label(), "Copy command `ls -la` to clipboard");
     }
 
     #[test]

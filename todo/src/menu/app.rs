@@ -11,6 +11,7 @@ use std::{
 };
 
 use anyhow::Context as _;
+use copypasta::{ClipboardContext, ClipboardProvider as _};
 use crossterm::{
     event::{self, Event},
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
@@ -90,6 +91,20 @@ fn spawn_in_terminal(cmd: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Copy `text` to the system clipboard, lazily creating the context
+fn copy_to_clipboard(clipboard: &mut Option<ClipboardContext>, text: &str) -> anyhow::Result<()> {
+    let ctx = match clipboard {
+        Some(ctx) => ctx,
+        None => clipboard.insert(
+            ClipboardContext::new()
+                .map_err(|e| anyhow::anyhow!("Failed to access clipboard: {e}"))?,
+        ),
+    };
+    ctx.set_contents(text.to_owned())
+        .map_err(|e| anyhow::anyhow!("Failed to set clipboard contents: {e}"))?;
+    Ok(())
+}
+
 /// Replace the current process with a fresh instance of the same executable
 fn exec_self(current_exe: &Path) -> anyhow::Result<()> {
     let err = Command::new(current_exe)
@@ -130,12 +145,14 @@ pub(crate) fn run(sources: Vec<MenuSource>, today: tasks::Date) -> anyhow::Resul
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
+    let mut clipboard: Option<ClipboardContext> = None;
     let result = run_loop(
         &mut terminal,
         &mut app,
         &rc_sources,
         &file_event_rxs,
         &exe_event_rx,
+        &mut clipboard,
     );
 
     // Restore terminal
@@ -162,6 +179,7 @@ fn run_loop(
     sources: &[Rc<MenuSource>],
     file_event_rxs: &[crossbeam_channel::Receiver<()>],
     exe_event_rx: &mpsc::Receiver<()>,
+    clipboard: &mut Option<ClipboardContext>,
 ) -> anyhow::Result<ExitReason> {
     loop {
         terminal.draw(|frame| render::draw(frame, app))?;
@@ -187,7 +205,7 @@ fn run_loop(
                 reload_with_toast(app, sources)?;
             }
             Effect::PerformAction(action) => {
-                run_action(terminal, app, sources, file_event_rxs, action)?;
+                run_action(terminal, app, sources, file_event_rxs, clipboard, action)?;
             }
             Effect::ExecSelf => return Ok(ExitReason::ExecSelf),
             Effect::Quit => return Ok(ExitReason::Quit),
@@ -255,6 +273,7 @@ fn run_action(
     app: &mut App,
     sources: &[Rc<MenuSource>],
     file_event_rxs: &[crossbeam_channel::Receiver<()>],
+    clipboard: &mut Option<ClipboardContext>,
     action: TaskAction,
 ) -> anyhow::Result<()> {
     let Some(menu_task) = app.selected_menu_task() else {
@@ -263,9 +282,10 @@ fn run_action(
     let task = menu_task.task.clone();
     let source = Rc::clone(&menu_task.source);
 
-    match action {
+    let modified_file = match action {
         TaskAction::MarkDone => {
             source.todo_file.set_done(task, app.today)?;
+            true
         }
         TaskAction::Edit => {
             // Leave TUI for external editor
@@ -279,25 +299,34 @@ fn run_action(
             terminal::enable_raw_mode()?;
             crossterm::execute!(terminal.backend_mut(), EnterAlternateScreen)?;
             terminal.clear()?;
+            true
         }
         TaskAction::Start => {
             source.todo_file.start(&task, app.today)?;
+            true
         }
         TaskAction::RunCommand(cmd) => {
             spawn_in_terminal(&cmd)?;
-            return Ok(());
+            false
         }
-    }
+        TaskAction::CopyCommand(cmd) => {
+            copy_to_clipboard(clipboard, &cmd)?;
+            app.set_toast(format!("Copied `{cmd}` to clipboard"));
+            false
+        }
+    };
 
-    // Reload all sources and drain watcher events to avoid a spurious
-    // "reloaded" toast from our own write
-    let tasks = load_all_tasks(sources)?;
-    app.reload_tasks(tasks);
-    for rx in file_event_rxs {
-        while rx.try_recv().is_ok() {}
+    if modified_file {
+        // Reload all sources and drain watcher events to avoid a spurious
+        // "reloaded" toast from our own write
+        let tasks = load_all_tasks(sources)?;
+        app.reload_tasks(tasks);
+        for rx in file_event_rxs {
+            while rx.try_recv().is_ok() {}
+        }
+        app.pending_reload_sources.clear();
+        app.pending_reload_at = None;
     }
-    app.pending_reload_sources.clear();
-    app.pending_reload_at = None;
 
     Ok(())
 }
@@ -392,6 +421,37 @@ mod tests {
 
         // Channel should now be empty
         assert!(file_event_rxs[0].try_recv().is_err());
+    }
+
+    #[test]
+    fn copy_to_clipboard_persists_after_function_returns() {
+        if env::var_os("DISPLAY").is_none() {
+            eprintln!("skipping: DISPLAY not set (run under xvfb-run)");
+            return;
+        }
+        if Command::new("xclip")
+            .arg("-version")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_err()
+        {
+            eprintln!("skipping: xclip not available");
+            return;
+        }
+        let payload = format!("todo-clipboard-test-{}", std::process::id());
+        let mut clipboard = None;
+        copy_to_clipboard(&mut clipboard, &payload).unwrap();
+
+        // Read the clipboard from a separate process; if our function did
+        // not retain ownership, xclip will block or return empty
+        let output = Command::new("xclip")
+            .args(["-o", "-selection", "clipboard"])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&output.stdout), payload);
     }
 
     #[test]
