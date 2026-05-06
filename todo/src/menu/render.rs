@@ -16,7 +16,7 @@ use ratatui::{
 };
 use tasks::{CreationCompletion, Date, TagKind, Task};
 
-use super::state::{App, Mode};
+use super::state::{App, Mode, TaskAction};
 
 /// Render the full UI
 pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
@@ -149,9 +149,25 @@ fn draw_toast(frame: &mut Frame, app: &App) {
 }
 
 fn draw_action_popup(frame: &mut Frame, app: &App) {
+    // Borders + horizontal padding eat 4 columns on each row
+    const FRAME_OVERHEAD: u16 = 4;
+    // Leave some breathing room around the popup
+    const SCREEN_MARGIN: u16 = 4;
+    const MIN_POPUP_WIDTH: u16 = 24;
+
     let actions = app.available_actions();
+    let labels: Vec<String> = actions.iter().map(TaskAction::label).collect();
     let area = frame.area();
-    let popup_width = 24_u16;
+
+    let max_label_chars =
+        u16::try_from(labels.iter().map(|l| l.chars().count()).max().unwrap_or(0))
+            .unwrap_or(u16::MAX);
+    let desired = max_label_chars
+        .saturating_add(FRAME_OVERHEAD)
+        .max(MIN_POPUP_WIDTH);
+    let popup_width = desired.min(area.width.saturating_sub(SCREEN_MARGIN));
+    let label_max = usize::from(popup_width.saturating_sub(FRAME_OVERHEAD));
+
     #[expect(clippy::cast_possible_truncation)]
     let popup_height = (actions.len() as u16) + 2; // +2 for borders
     let x = area.width.saturating_sub(popup_width) / 2 + area.x;
@@ -165,16 +181,19 @@ fn draw_action_popup(frame: &mut Frame, app: &App) {
 
     frame.render_widget(Clear, popup_area);
 
-    let items: Vec<ListItem> = actions
-        .iter()
+    let items: Vec<ListItem> = labels
+        .into_iter()
         .enumerate()
-        .map(|(i, action)| {
+        .map(|(i, label)| {
             let style = if i == app.action_index {
                 Style::default().add_modifier(Modifier::REVERSED)
             } else {
                 Style::default()
             };
-            ListItem::new(Span::styled(action.label(), style))
+            ListItem::new(Span::styled(
+                truncate_with_ellipsis(&label, label_max),
+                style,
+            ))
         })
         .collect();
 
@@ -186,6 +205,20 @@ fn draw_action_popup(frame: &mut Frame, app: &App) {
             .title("Action"),
     );
     frame.render_widget(popup, popup_area);
+}
+
+/// Truncate `s` to fit `max_chars` columns, ending with `…` if cut
+fn truncate_with_ellipsis(s: &str, max_chars: usize) -> String {
+    let count = s.chars().count();
+    if count <= max_chars {
+        s.to_owned()
+    } else if max_chars == 0 {
+        String::new()
+    } else {
+        let mut out: String = s.chars().take(max_chars - 1).collect();
+        out.push('…');
+        out
+    }
 }
 
 fn build_tab_titles(app: &App) -> Vec<Line<'_>> {
@@ -761,5 +794,25 @@ mod tests {
         let merged = merge_styles(&parent, &child);
         assert_eq!(merged.fg, Some(Color::Red));
         assert!(merged.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn truncate_with_ellipsis_keeps_short_string() {
+        assert_eq!(truncate_with_ellipsis("hello", 10), "hello");
+    }
+
+    #[test]
+    fn truncate_with_ellipsis_keeps_exact_length() {
+        assert_eq!(truncate_with_ellipsis("hello", 5), "hello");
+    }
+
+    #[test]
+    fn truncate_with_ellipsis_cuts_with_single_char() {
+        assert_eq!(truncate_with_ellipsis("hello world", 5), "hell…");
+    }
+
+    #[test]
+    fn truncate_with_ellipsis_zero_returns_empty() {
+        assert_eq!(truncate_with_ellipsis("hello", 0), "");
     }
 }

@@ -140,7 +140,7 @@ fn handle_key_popup(app: &mut App, key: KeyEvent) -> Effect {
         }
         KeyCode::Enter => {
             app.mode = Mode::Normal;
-            if let Some(action) = app.available_actions().get(app.action_index).copied() {
+            if let Some(action) = app.available_actions().get(app.action_index).cloned() {
                 Effect::PerformAction(action)
             } else {
                 Effect::None
@@ -212,7 +212,6 @@ mod tests {
     use std::{io::Write as _, rc::Rc, time::Instant};
 
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    use strum::EnumCount as _;
     use tasks::TodoFile;
 
     use super::*;
@@ -470,10 +469,11 @@ mod tests {
     fn popup_down_clamps_at_max() {
         let mut app = make_app(&["Buy milk"]);
         app.mode = Mode::ActionPopup;
-        app.action_index = TaskAction::COUNT - 1;
+        let max = app.available_actions().len() - 1;
+        app.action_index = max;
 
         handle_key(&mut app, key(KeyCode::Down));
-        assert_eq!(app.action_index, TaskAction::COUNT - 1);
+        assert_eq!(app.action_index, max);
     }
 
     #[test]

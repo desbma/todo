@@ -1,7 +1,12 @@
 //! Runtime loop wiring terminal, file watcher, and task I/O
 
 use std::{
-    env, io, os::unix::process::CommandExt as _, path::Path, process::Command, rc::Rc, sync::mpsc,
+    env, io,
+    os::unix::process::CommandExt as _,
+    path::Path,
+    process::{Command, Stdio},
+    rc::Rc,
+    sync::mpsc,
     time::Duration,
 };
 
@@ -65,6 +70,24 @@ fn watch_exe(exe_path: &Path) -> anyhow::Result<(Box<dyn notify::Watcher>, mpsc:
     )?);
     watcher.watch(parent_dir, notify::RecursiveMode::NonRecursive)?;
     Ok((watcher, event_rx))
+}
+
+/// Spawn `cmd` in a new terminal window that stays open after it exits
+fn spawn_in_terminal(cmd: &str) -> anyhow::Result<()> {
+    // Wrap the command so the shell stays open after it exits, prompting
+    // the user before closing — works with any terminal that accepts `-e`
+    let wrapped = format!(
+        "{cmd}\nstatus=$?\nprintf '\\n[exit %s — press Enter to close] ' \"$status\"\nread _"
+    );
+    let term = env::var("TERM").context("TERM environment variable is not set")?;
+    Command::new(&term)
+        .args(["-e", "sh", "-c", &wrapped])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .with_context(|| format!("Failed to spawn terminal {term:?}"))?;
+    Ok(())
 }
 
 /// Replace the current process with a fresh instance of the same executable
@@ -259,6 +282,10 @@ fn run_action(
         }
         TaskAction::Start => {
             source.todo_file.start(&task, app.today)?;
+        }
+        TaskAction::RunCommand(cmd) => {
+            spawn_in_terminal(&cmd)?;
+            return Ok(());
         }
     }
 

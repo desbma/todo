@@ -8,7 +8,6 @@ use std::{
 };
 
 use ratatui::widgets::ListState;
-use strum::IntoEnumIterator as _;
 use tasks::{Date, TagKind, Task, TodoFile};
 
 const TOAST_DURATION: Duration = Duration::from_secs(5);
@@ -26,21 +25,42 @@ pub(crate) enum Mode {
 }
 
 /// Actions available in the popup
-#[derive(Debug, Clone, Copy, Eq, PartialEq, strum::EnumIter, strum::EnumCount)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) enum TaskAction {
     MarkDone,
     Edit,
     Start,
+    RunCommand(String),
 }
 
 impl TaskAction {
-    pub(crate) fn label(self) -> &'static str {
+    pub(crate) fn label(&self) -> String {
         match self {
-            Self::MarkDone => "Mark as done",
-            Self::Edit => "Edit",
-            Self::Start => "Start",
+            Self::MarkDone => "Mark as done".to_owned(),
+            Self::Edit => "Edit".to_owned(),
+            Self::Start => "Start".to_owned(),
+            Self::RunCommand(cmd) => format!("Run command `{cmd}`"),
         }
     }
+}
+
+/// Extract backtick-delimited commands from a task's text
+pub(crate) fn extract_commands(text: &str) -> Vec<String> {
+    let parts: Vec<&str> = text.split('`').collect();
+    // Only fully-paired backticks count: pieces between an opening and a
+    // closing backtick. Drop a trailing piece left after an unmatched
+    // opening backtick (when the number of split pieces is even)
+    let take = parts
+        .len()
+        .saturating_sub(usize::from(parts.len().is_multiple_of(2)));
+    parts
+        .into_iter()
+        .take(take)
+        .skip(1)
+        .step_by(2)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 /// A source todo file with display metadata
@@ -137,12 +157,17 @@ impl App {
 
     /// Actions available in the popup for the currently selected task
     pub(crate) fn available_actions(&self) -> Vec<TaskAction> {
-        let started = self
-            .selected_task()
-            .is_some_and(|t| t.started_date().is_some());
-        TaskAction::iter()
-            .filter(|action| !(started && *action == TaskAction::Start))
-            .collect()
+        let Some(task) = self.selected_task() else {
+            return Vec::new();
+        };
+        let mut actions = vec![TaskAction::MarkDone, TaskAction::Edit];
+        if task.started_date().is_none() {
+            actions.push(TaskAction::Start);
+        }
+        for cmd in extract_commands(&task.text) {
+            actions.push(TaskAction::RunCommand(cmd));
+        }
+        actions
     }
 
     /// Currently selected menu task with source (if any)
@@ -695,6 +720,72 @@ mod tests {
             app.available_actions(),
             vec![TaskAction::MarkDone, TaskAction::Edit, TaskAction::Start],
         );
+    }
+
+    #[test]
+    fn available_actions_appends_run_command_for_each_backtick_pair() {
+        let app = App::new(
+            make_tasks(&["Run `ls -la` and `whoami` now"]),
+            today(),
+            false,
+        );
+        assert_eq!(
+            app.available_actions(),
+            vec![
+                TaskAction::MarkDone,
+                TaskAction::Edit,
+                TaskAction::Start,
+                TaskAction::RunCommand("ls -la".to_owned()),
+                TaskAction::RunCommand("whoami".to_owned()),
+            ],
+        );
+    }
+
+    #[test]
+    fn run_command_action_label_includes_command() {
+        let action = TaskAction::RunCommand("ls -la".to_owned());
+        assert_eq!(action.label(), "Run command `ls -la`");
+    }
+
+    #[test]
+    fn extract_commands_returns_empty_for_no_backticks() {
+        assert!(extract_commands("just text").is_empty());
+    }
+
+    #[test]
+    fn extract_commands_finds_paired_backticks() {
+        assert_eq!(
+            extract_commands("Run `ls -la` and `whoami` now"),
+            vec!["ls -la".to_owned(), "whoami".to_owned()],
+        );
+    }
+
+    #[test]
+    fn extract_commands_ignores_unclosed_backtick() {
+        assert_eq!(
+            extract_commands("Run `ls -la` then `oops"),
+            vec!["ls -la".to_owned()],
+        );
+    }
+
+    #[test]
+    fn extract_commands_skips_empty_pairs() {
+        assert!(extract_commands("empty `` here").is_empty());
+    }
+
+    #[test]
+    fn extract_commands_full_text_is_command() {
+        assert_eq!(extract_commands("`ls -la`"), vec!["ls -la".to_owned()]);
+    }
+
+    #[test]
+    fn extract_commands_text_starts_with_command() {
+        assert_eq!(extract_commands("`ls -la` blah"), vec!["ls -la".to_owned()]);
+    }
+
+    #[test]
+    fn extract_commands_text_ends_with_command() {
+        assert_eq!(extract_commands("blah `ls -la`"), vec!["ls -la".to_owned()]);
     }
 
     #[test]

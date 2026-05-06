@@ -19,7 +19,6 @@ notify = { workspace = true }
 notify-rust = { workspace = true }
 ratatui = { workspace = true }
 simple_logger = { workspace = true }
-strum = { workspace = true }
 tasks = { path = "../tasks" }
 
 [dev-dependencies]
