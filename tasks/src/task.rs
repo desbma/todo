@@ -688,10 +688,10 @@ impl Task {
             segments.push(format!("{attribute_key}:{attribute_value}"));
         }
 
-        if matches!(self.status, CreationCompletion::Completed { .. }) {
-            if let Some(priority) = self.priority {
-                segments.push(format!("pri:{priority}"));
-            }
+        if matches!(self.status, CreationCompletion::Completed { .. })
+            && let Some(priority) = self.priority
+        {
+            segments.push(format!("pri:{priority}"));
         }
 
         segments.join(" ")

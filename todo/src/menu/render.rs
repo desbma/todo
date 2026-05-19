@@ -402,10 +402,8 @@ fn styled_task_line_with_source<'a>(
     }
 
     // Completed tasks: append pri:X
-    if is_completed {
-        if let Some(priority) = task.priority {
-            spans.push(Span::raw(format!(" pri:{priority}")));
-        }
+    if is_completed && let Some(priority) = task.priority {
+        spans.push(Span::raw(format!(" pri:{priority}")));
     }
 
     // Whole-line modifiers

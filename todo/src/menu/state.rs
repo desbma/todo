@@ -335,16 +335,16 @@ impl App {
         self.refilter();
 
         // Restore selection if possible
-        if let Some((prev_path, prev_idx, prev_line)) = prev_key {
-            if let Some(pos) = self.visible.iter().position(|idx| {
+        if let Some((prev_path, prev_idx, prev_line)) = prev_key
+            && let Some(pos) = self.visible.iter().position(|idx| {
                 self.tasks.get(*idx).is_some_and(|mt| {
                     mt.source.todo_file.path() == prev_path
                         && mt.task.index == prev_idx
                         && mt.task.to_todotxt_line() == prev_line
                 })
-            }) {
-                self.list_state.select(Some(pos));
-            }
+            })
+        {
+            self.list_state.select(Some(pos));
         }
     }
 

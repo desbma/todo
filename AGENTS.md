@@ -10,7 +10,7 @@
 
 ## Architecture
 
-- Rust workspace (edition 2024, MSRV 1.87) with two crates:
+- Rust workspace with two crates:
   - **`tasks`** — library crate: `Task` model with todo.txt parsing via `nom` (`task.rs`),
     `TodoFile` for file I/O, file watching via `notify`, undo history, auto-archiving,
     and zstd-compressed backups (`file.rs`)
@@ -28,6 +28,7 @@
 ## Code Style
 
 - Clippy pedantic + many restriction lints enabled (see `Cargo.toml` `[workspace.lints.clippy]`)
+- No `unwrap`/`expect`/`panic` in non-test code; use `anyhow` for errors
 - Imports:
   - Place all `use` statements at the top of the file; do not put them inside functions, `impl` blocks, or other inner scopes (the only exception is inside `#[cfg(...)]` modules such as `mod tests`, where the imports go at the top of that module)
   - Group std imports first, then external crates, then local modules

@@ -180,18 +180,18 @@ pub(crate) fn handle_exe_changed(app: &mut App) {
 /// Handle a tick: check if a pending reload is due
 pub(crate) fn handle_tick(app: &mut App) -> Effect {
     // Check exe reload first — takes priority
-    if let Some(deadline) = app.pending_exe_reload_at {
-        if Instant::now() >= deadline {
-            app.pending_exe_reload_at = None;
-            return Effect::ExecSelf;
-        }
+    if let Some(deadline) = app.pending_exe_reload_at
+        && Instant::now() >= deadline
+    {
+        app.pending_exe_reload_at = None;
+        return Effect::ExecSelf;
     }
 
-    if let Some(deadline) = app.pending_reload_at {
-        if Instant::now() >= deadline {
-            app.pending_reload_at = None;
-            return Effect::ReloadTasks;
-        }
+    if let Some(deadline) = app.pending_reload_at
+        && Instant::now() >= deadline
+    {
+        app.pending_reload_at = None;
+        return Effect::ReloadTasks;
     }
 
     // Clear expired toast

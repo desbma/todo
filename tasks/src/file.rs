@@ -244,14 +244,11 @@ impl TodoFile {
 
     pub fn auto_archive(&self, tasks: &mut Vec<Task>, today: Date) -> anyhow::Result<usize> {
         let to_archive: Vec<_> = tasks
-            .extract_if(.., |task| {
-                if let CreationCompletion::Completed { completed, .. } = task.status
-                    && ((today - completed) >= *AUTO_ARCHIVE_COMPLETED_THRESHOLD)
-                {
-                    true
-                } else {
-                    false
+            .extract_if(.., |task| match task.status {
+                CreationCompletion::Completed { completed, .. } => {
+                    (today - completed) >= *AUTO_ARCHIVE_COMPLETED_THRESHOLD
                 }
+                CreationCompletion::Pending { .. } => false,
             })
             .collect();
 
