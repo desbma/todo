@@ -1,7 +1,7 @@
 //! Runtime loop wiring terminal, file watcher, and task I/O
 
 use std::{
-    env, io,
+    env, fmt, io,
     os::unix::process::CommandExt as _,
     path::Path,
     process::{Command, Stdio},
@@ -13,6 +13,7 @@ use std::{
 use anyhow::Context as _;
 use copypasta::{ClipboardContext, ClipboardProvider as _};
 use crossterm::{
+    Command as CrosstermCommand,
     event::{self, Event},
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -26,6 +27,25 @@ use super::{
 };
 
 const POLL_TIMEOUT: Duration = Duration::from_millis(250);
+
+/// DECRST 1007: turn off the terminal's alternate-scroll mode so the mouse
+/// wheel doesn't get translated into arrow keys in the alt screen
+struct DisableAltScroll;
+
+impl CrosstermCommand for DisableAltScroll {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        f.write_str("\x1b[?1007l")
+    }
+}
+
+/// DECSET 1007: re-enable the terminal's alternate-scroll mode
+struct EnableAltScroll;
+
+impl CrosstermCommand for EnableAltScroll {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        f.write_str("\x1b[?1007h")
+    }
+}
 
 /// Load tasks from all sources
 fn load_all_tasks(sources: &[Rc<MenuSource>]) -> anyhow::Result<Vec<MenuTask>> {
@@ -140,10 +160,13 @@ pub(crate) fn run(sources: Vec<MenuSource>, today: tasks::Date) -> anyhow::Resul
 
     // Set up terminal
     terminal::enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    crossterm::execute!(stdout, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
+    let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend)?;
+    crossterm::execute!(
+        terminal.backend_mut(),
+        EnterAlternateScreen,
+        DisableAltScroll
+    )?;
 
     let mut clipboard: Option<ClipboardContext> = None;
     let result = run_loop(
@@ -157,7 +180,11 @@ pub(crate) fn run(sources: Vec<MenuSource>, today: tasks::Date) -> anyhow::Resul
 
     // Restore terminal
     terminal::disable_raw_mode()?;
-    crossterm::execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    crossterm::execute!(
+        terminal.backend_mut(),
+        EnableAltScroll,
+        LeaveAlternateScreen
+    )?;
     terminal.show_cursor()?;
 
     match result {
@@ -290,14 +317,22 @@ fn run_action(
         TaskAction::Edit => {
             // Leave TUI for external editor
             terminal::disable_raw_mode()?;
-            crossterm::execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+            crossterm::execute!(
+                terminal.backend_mut(),
+                EnableAltScroll,
+                LeaveAlternateScreen
+            )?;
             terminal.show_cursor()?;
 
             source.todo_file.edit(&task)?;
 
             // Re-enter TUI
             terminal::enable_raw_mode()?;
-            crossterm::execute!(terminal.backend_mut(), EnterAlternateScreen)?;
+            crossterm::execute!(
+                terminal.backend_mut(),
+                EnterAlternateScreen,
+                DisableAltScroll
+            )?;
             terminal.clear()?;
             true
         }
@@ -335,6 +370,7 @@ fn run_action(
 mod tests {
     use std::{io::Write as _, rc::Rc, time::Instant};
 
+    use crossterm::Command as _;
     use tasks::TodoFile;
 
     use super::*;
@@ -477,5 +513,19 @@ mod tests {
         let effect = update::handle_tick(&mut app);
         assert_eq!(effect, Effect::None);
         assert!(app.pending_reload_sources.is_empty());
+    }
+
+    #[test]
+    fn disable_alt_scroll_emits_decrst_1007() {
+        let mut s = String::new();
+        DisableAltScroll.write_ansi(&mut s).unwrap();
+        assert_eq!(s, "\x1b[?1007l");
+    }
+
+    #[test]
+    fn enable_alt_scroll_emits_decset_1007() {
+        let mut s = String::new();
+        EnableAltScroll.write_ansi(&mut s).unwrap();
+        assert_eq!(s, "\x1b[?1007h");
     }
 }
