@@ -482,7 +482,7 @@ impl Task {
 
     /// Compare tasks for sorting
     #[must_use]
-    #[expect(clippy::too_many_lines)]
+    #[expect(clippy::cognitive_complexity, clippy::too_many_lines)]
     pub fn cmp(&self, other: &Self, others: &[Self]) -> Ordering {
         // Completed is obviously less urgent than pending
         match (&self.status, &other.status) {
