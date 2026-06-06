@@ -4,7 +4,7 @@ use std::{collections::HashSet, fs, path::Path};
 
 use crate::{
     TodoFile,
-    task::{CreationCompletion, Identifier, MergeKey, Task},
+    task::{CreationCompletion, Date, Identifier, MergeKey, Task},
 };
 
 /// Describes which side a task came from during matching
@@ -115,6 +115,9 @@ pub fn resolve_conflict(
     let mut merged_count = 0_usize;
     let mut merged_todo: Vec<Task> = Vec::new();
     let mut merged_done: Vec<Task> = Vec::new();
+    // Recurring occurrences the merge turned from pending to completed, with the
+    // completion date; their successor must be regenerated like `set_done` does
+    let mut completed_by_merge: Vec<(Task, Date)> = Vec::new();
 
     for m in &matches {
         let task = match m {
@@ -122,6 +125,22 @@ pub fn resolve_conflict(
                 let merged = local.merge(conflict);
                 if **local != merged {
                     merged_count += 1;
+                }
+                let pending_completed = matches!(
+                    (&local.status, &conflict.status),
+                    (
+                        CreationCompletion::Pending { .. },
+                        CreationCompletion::Completed { .. }
+                    ) | (
+                        CreationCompletion::Completed { .. },
+                        CreationCompletion::Pending { .. }
+                    )
+                );
+                if pending_completed
+                    && merged.recurrence().is_some()
+                    && let CreationCompletion::Completed { completed, .. } = &merged.status
+                {
+                    completed_by_merge.push((merged.clone(), *completed));
                 }
                 merged
             }
@@ -134,6 +153,19 @@ pub fn resolve_conflict(
         match task.status {
             CreationCompletion::Completed { .. } => merged_done.push(task),
             CreationCompletion::Pending { .. } => merged_todo.push(task),
+        }
+    }
+
+    // Regenerate the next occurrence for any recurrence the merge completed whose
+    // successor is absent; without this it would only live in done.txt, where
+    // `auto_recur` never looks, so the recurrence would silently stop
+    for (completed, completed_date) in &completed_by_merge {
+        if merged_todo.iter().any(|t| completed.is_same_recurring(t)) {
+            continue;
+        }
+        if let Some(next) = completed.recur(*completed_date) {
+            merged_todo.push(next);
+            merged_count += 1;
         }
     }
 
@@ -435,6 +467,29 @@ mod tests {
         assert_eq!(
             done_tasks[0].due_date(),
             Some(chrono::NaiveDate::from_ymd_opt(2024, 6, 15).unwrap())
+        );
+    }
+
+    #[test]
+    fn recurring_completed_in_conflict_regenerates_missing_successor() {
+        // Conflict completed the occurrence without creating its successor (e.g. an
+        // external todo.txt tool or a manual edit). The merge must not let the
+        // recurrence chain die: it regenerates the next pending occurrence.
+        let todo = write_file(&["water plant rec:+7d due:2024-06-01"]);
+        let done = write_file(&[]);
+        let conflict = write_file(&["x 2024-06-01 water plant rec:+7d due:2024-06-01"]);
+        resolve_conflict(todo.path(), done.path(), Some(conflict.path()), None).unwrap();
+        let todo_tasks = load_tasks_from_path(todo.path()).unwrap();
+        let done_tasks = load_tasks_from_path(done.path()).unwrap();
+        assert_eq!(done_tasks.len(), 1);
+        assert!(matches!(
+            done_tasks[0].status,
+            CreationCompletion::Completed { .. }
+        ));
+        assert_eq!(todo_tasks.len(), 1);
+        assert_eq!(
+            todo_tasks[0].due_date(),
+            Some(chrono::NaiveDate::from_ymd_opt(2024, 6, 8).unwrap())
         );
     }
 
