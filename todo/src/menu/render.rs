@@ -107,16 +107,20 @@ fn draw_task_list(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_stateful_widget(list, area, &mut app.list_state);
 }
 
-fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
-    let text = match app.mode {
+/// Key binding help line for the current mode
+fn footer_text(app: &App) -> &'static str {
+    match app.mode {
         Mode::Normal if app.has_tabs() => {
-            "↑↓:navigate  Tab/S-Tab:tabs  Enter:actions  Esc:quit  type to filter"
+            "↑↓/C-n/C-p:navigate  Tab/S-Tab:tabs  Enter:actions  Esc:quit  type to filter"
         }
-        Mode::Normal => "↑↓:navigate  Enter:actions  Esc:quit  type to filter",
+        Mode::Normal => "↑↓/C-n/C-p:navigate  Enter:actions  Esc:quit  type to filter",
         Mode::ActionPopup => "↑↓:navigate  Enter:select  Esc:cancel",
-    };
+    }
+}
+
+fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
     let footer = Paragraph::new(Span::styled(
-        text,
+        footer_text(app),
         Style::default().add_modifier(Modifier::DIM),
     ))
     .block(Block::default().style(Style::default().bg(Color::Black)));
@@ -746,6 +750,31 @@ mod tests {
         assert_eq!(work_span.content.as_ref(), " @work ");
         assert_eq!(work_span.style.fg, Some(Color::Blue));
         assert!(!work_span.style.add_modifier.contains(Modifier::DIM));
+    }
+
+    #[test]
+    fn footer_text_normal_mode() {
+        let app = make_app_with_source_tag(&["Buy milk"], 0, None);
+        assert_eq!(
+            footer_text(&app),
+            "↑↓/C-n/C-p:navigate  Enter:actions  Esc:quit  type to filter"
+        );
+    }
+
+    #[test]
+    fn footer_text_normal_mode_with_tabs() {
+        let app = make_app(&["Buy milk"], 0);
+        assert_eq!(
+            footer_text(&app),
+            "↑↓/C-n/C-p:navigate  Tab/S-Tab:tabs  Enter:actions  Esc:quit  type to filter"
+        );
+    }
+
+    #[test]
+    fn footer_text_action_popup() {
+        let mut app = make_app(&["Buy milk"], 0);
+        app.mode = Mode::ActionPopup;
+        assert_eq!(footer_text(&app), "↑↓:navigate  Enter:select  Esc:cancel");
     }
 
     #[test]

@@ -60,15 +60,19 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) -> Effect {
             }
             Effect::None
         }
-        KeyCode::Up | KeyCode::Char('k')
-            if !key.modifiers.contains(KeyModifiers::CONTROL) || key.code == KeyCode::Up =>
-        {
+        KeyCode::Up => {
             move_selection(app, -1);
             Effect::None
         }
-        KeyCode::Down | KeyCode::Char('j')
-            if !key.modifiers.contains(KeyModifiers::CONTROL) || key.code == KeyCode::Down =>
-        {
+        KeyCode::Down => {
+            move_selection(app, 1);
+            Effect::None
+        }
+        KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            move_selection(app, -1);
+            Effect::None
+        }
+        KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             move_selection(app, 1);
             Effect::None
         }
@@ -326,18 +330,27 @@ mod tests {
     }
 
     #[test]
-    fn j_moves_down() {
+    fn ctrl_n_moves_down() {
         let mut app = make_app(&["Task A", "Task B"]);
-        handle_key(&mut app, key(KeyCode::Char('j')));
+        handle_key(&mut app, ctrl('n'));
         assert_eq!(app.list_state.selected(), Some(1));
     }
 
     #[test]
-    fn k_moves_up() {
+    fn ctrl_p_moves_up() {
         let mut app = make_app(&["Task A", "Task B"]);
         handle_key(&mut app, key(KeyCode::Down));
-        handle_key(&mut app, key(KeyCode::Char('k')));
+        handle_key(&mut app, ctrl('p'));
         assert_eq!(app.list_state.selected(), Some(0));
+    }
+
+    #[test]
+    fn j_and_k_append_to_query() {
+        let mut app = make_app(&["Task A", "Task B"]);
+        handle_key(&mut app, key(KeyCode::Char('j')));
+        handle_key(&mut app, key(KeyCode::Char('k')));
+        assert_eq!(app.query, "jk");
+        assert_eq!(app.list_state.selected(), None);
     }
 
     #[test]
