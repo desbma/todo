@@ -6,16 +6,16 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-anyhow = { version = "1.0.102", default-features = false, features = ["std", "backtrace"] }
-chrono = { version = "0.4.44", default-features = false, features = ["std", "clock"] }
+anyhow = { version = "1.0.103", default-features = false, features = ["std", "backtrace"] }
+chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
 clap = { version = "4.6.1", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
 copypasta = { version = "0.10.2", default-features = false, features = ["x11"] }
 crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
 crossterm = { version = "0.29", default-features = false }
 deunicode = { version = "1.6.2", default-features = false, features = ["alloc"] }
 fuzzy-matcher = { version = "0.3", default-features = false }
-itertools = { version = "0.14.0", default-features = false, features = ["use_std"] }
-log = { version = "0.4.29", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
+itertools = { version = "0.15.0", default-features = false, features = ["use_std"] }
+log = { version = "0.4.33", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
 nom = { version = "8.0.0", default-features = false, features = ["std"] }
 notify = { version = "8.2.0", default-features = false }
 notify-rust = { version = "4.17.0", default-features = false, features = ["zbus", "serde", "async"] }
