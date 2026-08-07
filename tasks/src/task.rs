@@ -407,6 +407,7 @@ impl Task {
         self.recurrence().and_then(|r| {
             // Update attributes
             let mut attributes = self.attributes.clone();
+            #[expect(clippy::question_mark)]
             if let Some(due) = self.due_date() {
                 // Update due
                 let ref_ = match r.reference {
