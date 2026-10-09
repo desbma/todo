@@ -370,7 +370,6 @@ fn run_action(
 mod tests {
     use std::{io::Write as _, rc::Rc, time::Instant};
 
-    use crossterm::Command as _;
     use tasks::TodoFile;
 
     use super::*;

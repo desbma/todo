@@ -506,8 +506,6 @@ impl TodoFile {
 #[cfg(test)]
 #[expect(clippy::shadow_unrelated)]
 mod tests {
-    use std::io::Write as _;
-
     use tempfile::NamedTempFile;
 
     use super::*;
