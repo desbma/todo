@@ -4,7 +4,7 @@ use std::{
     borrow::Borrow,
     env,
     fs::{self, File, OpenOptions},
-    io::{self, BufRead as _, BufReader, BufWriter, Read as _, Write},
+    io::{self, BufRead as _, BufReader, BufWriter, Read as _, Seek as _, SeekFrom, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::LazyLock,
@@ -144,7 +144,7 @@ impl TodoFile {
         self.backup()?;
 
         // Append to file
-        let mut file = OpenOptions::new().append(true).open(&self.todo_path)?;
+        let mut file = Self::open_append(&self.todo_path)?;
         Self::write_task(&mut file, &new_task)?;
 
         Ok(())
@@ -252,18 +252,14 @@ impl TodoFile {
             })
             .collect();
 
-        let to_archive_count = to_archive.len();
-        if !to_archive.is_empty() {
+        let archived_count = to_archive.len();
+        if archived_count > 0 {
             // Append to file
-            let done_file = OpenOptions::new().append(true).open(&self.done_path)?;
+            let done_file = Self::open_append(&self.done_path)?;
             let mut done_writer = BufWriter::new(done_file);
             for task in to_archive {
                 Self::write_task(&mut done_writer, &task)?;
             }
-        }
-
-        let archived_count = to_archive_count;
-        if archived_count > 0 {
             log::info!("Archived {archived_count} task(s)");
         }
 
@@ -447,6 +443,20 @@ impl TodoFile {
         } else {
             Ok(false)
         }
+    }
+
+    /// Open a file for appending, terminating its last line if needed
+    fn open_append(path: &Path) -> io::Result<File> {
+        let mut file = OpenOptions::new().read(true).append(true).open(path)?;
+        if file.metadata()?.len() > 0 {
+            file.seek(SeekFrom::End(-1))?;
+            let mut last = [0_u8];
+            file.read_exact(&mut last)?;
+            if last != *b"\n" {
+                file.write_all(b"\n")?;
+            }
+        }
+        Ok(file)
     }
 
     fn write_task<W>(writer: &mut W, task: &Task) -> io::Result<()>
@@ -709,6 +719,22 @@ mod tests {
     }
 
     #[test]
+    fn add_task_appends_to_file_without_trailing_newline() {
+        let (todo_file, done_file) = todotxtfiles(&[]);
+        fs::write(todo_file.path(), "existing task").unwrap();
+        let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
+        let task = Task {
+            text: "another task".to_owned(),
+            ..Task::default()
+        };
+        tf.add_task(task, date(2024, 6, 15)).unwrap();
+        assert_eq!(
+            fs::read_to_string(todo_file.path()).unwrap(),
+            "existing task\n2024-06-15 another task\n"
+        );
+    }
+
+    #[test]
     fn start_sets_started_attribute() {
         let (todo_file, done_file) = todotxtfiles(&["task to start"]);
         let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
@@ -779,6 +805,7 @@ mod tests {
         let recent_completed = "x 2024-06-14 2024-06-13 recent done task".to_owned();
         let (todo_file, done_file) =
             todotxtfiles(&[&old_completed, &recent_completed, "pending task"]);
+        fs::write(done_file.path(), "x 2024-06-01 2024-05-30 archived task").unwrap();
         let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
         let mut tasks = tf.load_tasks().unwrap();
         let archived = tf.auto_archive(&mut tasks, today).unwrap();
@@ -786,8 +813,10 @@ mod tests {
         assert_eq!(tasks.len(), 2);
         assert!(tasks.iter().all(|t| t.text != "old done task"));
 
-        let done_content = fs::read_to_string(done_file.path()).unwrap();
-        assert!(done_content.contains("old done task"));
+        assert_eq!(
+            fs::read_to_string(done_file.path()).unwrap(),
+            "x 2024-06-01 2024-05-30 archived task\nx 2024-06-12 2024-06-10 old done task\n"
+        );
     }
 
     #[test]
