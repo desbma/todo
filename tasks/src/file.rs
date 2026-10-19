@@ -1,7 +1,6 @@
 //! Todo.txt file handling
 
 use std::{
-    borrow::Borrow,
     env,
     fs::{self, File, OpenOptions},
     io::{self, BufRead as _, BufReader, BufWriter, Read as _, Seek as _, SeekFrom, Write},
@@ -74,7 +73,7 @@ impl TodoFile {
         ))
     }
 
-    pub fn save_tasks(&self, tasks: Vec<Task>) -> anyhow::Result<()> {
+    pub fn save_tasks(&self, tasks: &[Task]) -> anyhow::Result<()> {
         // Backup
         self.backup()?;
 
@@ -91,8 +90,8 @@ impl TodoFile {
         todo_tasks: &[Task],
         done_tasks: &[Task],
     ) -> anyhow::Result<()> {
-        let new_todo_file = Self::write_tasks_temp(&self.todo_path, todo_tasks.iter())?;
-        let new_done_file = Self::write_tasks_temp(&self.done_path, done_tasks.iter())?;
+        let new_todo_file = Self::write_tasks_temp(&self.todo_path, todo_tasks)?;
+        let new_done_file = Self::write_tasks_temp(&self.done_path, done_tasks)?;
 
         self.backup()?;
 
@@ -144,8 +143,7 @@ impl TodoFile {
         self.backup()?;
 
         // Append to file
-        let mut file = Self::open_append(&self.todo_path)?;
-        Self::write_task(&mut file, &new_task)?;
+        Self::append_tasks(&self.todo_path, &[new_task])?;
 
         Ok(())
     }
@@ -255,11 +253,7 @@ impl TodoFile {
         let archived_count = to_archive.len();
         if archived_count > 0 {
             // Append to file
-            let done_file = Self::open_append(&self.done_path)?;
-            let mut done_writer = BufWriter::new(done_file);
-            for task in to_archive {
-                Self::write_task(&mut done_writer, &task)?;
-            }
+            Self::append_tasks(&self.done_path, &to_archive)?;
             log::info!("Archived {archived_count} task(s)");
         }
 
@@ -445,8 +439,8 @@ impl TodoFile {
         }
     }
 
-    /// Open a file for appending, terminating its last line if needed
-    fn open_append(path: &Path) -> io::Result<File> {
+    /// Append tasks to a file, terminating its last line if needed
+    fn append_tasks(path: &Path, tasks: &[Task]) -> io::Result<()> {
         let mut file = OpenOptions::new().read(true).append(true).open(path)?;
         if file.metadata()?.len() > 0 {
             file.seek(SeekFrom::End(-1))?;
@@ -456,7 +450,11 @@ impl TodoFile {
                 file.write_all(b"\n")?;
             }
         }
-        Ok(file)
+        let mut writer = BufWriter::new(file);
+        for task in tasks {
+            Self::write_task(&mut writer, task)?;
+        }
+        writer.flush()
     }
 
     fn write_task<W>(writer: &mut W, task: &Task) -> io::Result<()>
@@ -481,18 +479,14 @@ impl TodoFile {
         Ok(tasks)
     }
 
-    fn write_tasks_temp<T, I>(path: &Path, tasks: I) -> anyhow::Result<NamedTempFile>
-    where
-        T: Borrow<Task>,
-        I: IntoIterator<Item = T>,
-    {
+    fn write_tasks_temp(path: &Path, tasks: &[Task]) -> anyhow::Result<NamedTempFile> {
         let parent = path
             .parent()
             .ok_or_else(|| anyhow::anyhow!("Cannot determine parent of {path:?}"))?;
         let new_file = NamedTempFile::new_in(parent)?;
         let mut writer = BufWriter::new(new_file);
         for task in tasks {
-            Self::write_task(&mut writer, task.borrow())?;
+            Self::write_task(&mut writer, task)?;
         }
         Ok(writer.into_inner()?)
     }
@@ -634,7 +628,7 @@ mod tests {
             todotxtfiles(&["(A) 2024-03-01 important task", "simple task"]);
         let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
         let tasks = tf.load_tasks().unwrap();
-        tf.save_tasks(tasks.clone()).unwrap();
+        tf.save_tasks(&tasks).unwrap();
         let reloaded = tf.load_tasks().unwrap();
         assert_eq!(tasks, reloaded);
     }
@@ -647,7 +641,7 @@ mod tests {
             text: "new task".to_owned(),
             ..Task::default()
         }];
-        tf.save_tasks(new_tasks).unwrap();
+        tf.save_tasks(&new_tasks).unwrap();
         let loaded = tf.load_tasks().unwrap();
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].text, "new task");
@@ -657,7 +651,7 @@ mod tests {
     fn save_empty_tasks() {
         let (todo_file, done_file) = todotxtfiles(&["old task"]);
         let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
-        tf.save_tasks(vec![]).unwrap();
+        tf.save_tasks(&[]).unwrap();
         assert_eq!(tf.load_tasks().unwrap(), vec![]);
     }
 
@@ -803,19 +797,39 @@ mod tests {
         let today = date(2024, 6, 15);
         let old_completed = "x 2024-06-12 2024-06-10 old done task".to_owned();
         let recent_completed = "x 2024-06-14 2024-06-13 recent done task".to_owned();
-        let (todo_file, done_file) =
-            todotxtfiles(&[&old_completed, &recent_completed, "pending task"]);
+        let second_completed = "x 2024-06-11 2024-06-09 another done task";
+        let (todo_file, done_file) = todotxtfiles(&[
+            &old_completed,
+            &recent_completed,
+            "pending task",
+            second_completed,
+        ]);
         fs::write(done_file.path(), "x 2024-06-01 2024-05-30 archived task").unwrap();
         let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
         let mut tasks = tf.load_tasks().unwrap();
         let archived = tf.auto_archive(&mut tasks, today).unwrap();
-        assert_eq!(archived, 1);
+        assert_eq!(archived, 2);
         assert_eq!(tasks.len(), 2);
         assert!(tasks.iter().all(|t| t.text != "old done task"));
 
         assert_eq!(
             fs::read_to_string(done_file.path()).unwrap(),
-            "x 2024-06-01 2024-05-30 archived task\nx 2024-06-12 2024-06-10 old done task\n"
+            "x 2024-06-01 2024-05-30 archived task\n\
+             x 2024-06-12 2024-06-10 old done task\n\
+             x 2024-06-11 2024-06-09 another done task\n"
+        );
+    }
+
+    #[test]
+    fn auto_archive_reports_done_file_write_error() {
+        let (todo_file, _) = todotxtfiles(&["x 2024-06-12 2024-06-10 old done task"]);
+        // Procfs file that opens for appending but rejects non-numeric writes
+        let tf = TodoFile::new(todo_file.path(), Path::new("/proc/self/oom_score_adj")).unwrap();
+        let mut tasks = tf.load_tasks().unwrap();
+        let err = tf.auto_archive(&mut tasks, date(2024, 6, 15)).unwrap_err();
+        assert_eq!(
+            err.downcast_ref::<io::Error>().unwrap().kind(),
+            io::ErrorKind::InvalidInput
         );
     }
 
@@ -1065,7 +1079,7 @@ mod tests {
             todotxtfiles(&["(B) 2024-01-01 +project task text due:2024-12-31 t:2024-06-01"]);
         let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
         let tasks = tf.load_tasks().unwrap();
-        tf.save_tasks(tasks.clone()).unwrap();
+        tf.save_tasks(&tasks).unwrap();
         let reloaded = tf.load_tasks().unwrap();
         assert_eq!(tasks, reloaded);
     }
@@ -1074,7 +1088,7 @@ mod tests {
     fn save_creates_backup() {
         let (todo_file, done_file) = todotxtfiles(&["original task"]);
         let tf = TodoFile::new(todo_file.path(), done_file.path()).unwrap();
-        tf.save_tasks(vec![Task {
+        tf.save_tasks(&[Task {
             text: "new task".to_owned(),
             ..Task::default()
         }])

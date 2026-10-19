@@ -156,7 +156,7 @@ fn main() -> anyhow::Result<()> {
                 let added_count = TodoFile::auto_recur(&mut tasks);
                 let archived_count = task_file.auto_archive(&mut tasks, today)?;
                 if (archived_count > 0) || (added_count > 0) {
-                    task_file.save_tasks(tasks)?;
+                    task_file.save_tasks(&tasks)?;
                 }
             }
         }
