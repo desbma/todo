@@ -13,7 +13,7 @@ use nom::{
     branch::alt,
     bytes::complete::{take, take_while1},
     character::complete::{char, digit1, satisfy, space1},
-    combinator::{map, map_opt, map_res, opt, peek, value, verify},
+    combinator::{consumed, map, map_opt, map_res, opt, peek, value, verify},
     sequence::{delimited, preceded, terminated},
 };
 
@@ -714,21 +714,28 @@ fn parse_date_token(input: &str) -> IResult<&str, Date> {
     .parse(input)
 }
 
+/// Priority prefix source token and value
+type PriorityPrefix<'a> = (&'a str, char);
+
 fn parse_priority(input: &str) -> IResult<&str, char> {
     delimited(char('('), satisfy(|c| c.is_ascii_uppercase()), char(')')).parse(input)
 }
 
-fn parse_completed_prefix(input: &str) -> IResult<&str, (Date, Option<Date>)> {
+/// Parse a completed task prefix, allowing a priority between the completion and creation dates
+fn parse_completed_prefix(
+    input: &str,
+) -> IResult<&str, (Date, Option<PriorityPrefix<'_>>, Option<Date>)> {
     let completed = preceded(
         terminated(char('x'), space1),
         terminated(parse_date_token, space1),
     );
+    let priority = opt(terminated(consumed(parse_priority), space1));
     let created = opt(terminated(parse_date_token, space1));
-    (completed, created).parse(input)
+    (completed, priority, created).parse(input)
 }
 
-fn parse_pending_prefix(input: &str) -> IResult<&str, (Option<char>, Option<Date>)> {
-    let priority = opt(terminated(parse_priority, space1));
+fn parse_pending_prefix(input: &str) -> IResult<&str, (Option<PriorityPrefix<'_>>, Option<Date>)> {
+    let priority = opt(terminated(consumed(parse_priority), space1));
     let created = opt(terminated(parse_date_token, space1));
     (priority, created).parse(input)
 }
@@ -780,10 +787,11 @@ fn parse_body_token(input: &str) -> IResult<&str, BodyToken<'_>> {
     .parse(input)
 }
 
-fn parse_prefix(input: &str) -> IResult<&str, (Option<char>, CreationCompletion)> {
+/// Parse the task prefix
+fn parse_prefix(input: &str) -> IResult<&str, (Option<PriorityPrefix<'_>>, CreationCompletion)> {
     alt((
-        map(parse_completed_prefix, |(completed, created)| {
-            (None, CreationCompletion::Completed { created, completed })
+        map(parse_completed_prefix, |(completed, pri, created)| {
+            (pri, CreationCompletion::Completed { created, completed })
         }),
         map(
             verify(parse_pending_prefix, |(pri, created)| {
@@ -840,8 +848,17 @@ fn parse_task(input: &str) -> IResult<&str, Task> {
         .map(|o| o.unwrap_or((None, CreationCompletion::Pending { created: None })))
         .parse(input)?;
 
-    let (rest, body) = parse_body(rest)?;
-    let priority = prefix_priority.or(body.pri_attr);
+    let (rest, mut body) = parse_body(rest)?;
+    let priority = match (prefix_priority, body.pri_attr) {
+        // On completed tasks, the `pri:` attribute takes precedence and the prefix stays in the text
+        (Some((token, _)), Some(pri_attr))
+            if matches!(status, CreationCompletion::Completed { .. }) =>
+        {
+            body.text_parts.insert(0, token);
+            Some(pri_attr)
+        }
+        (prefix_priority, pri_attr) => prefix_priority.map(|(_, pri)| pri).or(pri_attr),
+    };
     let text = body.text_parts.join(" ");
 
     Ok((
@@ -1090,6 +1107,70 @@ mod tests {
 
                     completed: Date::from_ymd_opt(2023, 8, 21).unwrap()
                 },
+                ..Task::default()
+            }
+        );
+    }
+
+    #[test]
+    fn parse_completed_ntodotxt_priority() {
+        assert_eq!(
+            "x 2023-08-21 (D) 2023-08-20 task text"
+                .parse::<Task>()
+                .unwrap(),
+            Task {
+                priority: Some('D'),
+                text: "task text".to_owned(),
+                status: CreationCompletion::Completed {
+                    created: Some(Date::from_ymd_opt(2023, 8, 20).unwrap()),
+                    completed: Date::from_ymd_opt(2023, 8, 21).unwrap()
+                },
+                ..Task::default()
+            }
+        );
+    }
+
+    #[test]
+    fn parse_completed_ntodotxt_priority_without_created() {
+        assert_eq!(
+            "x 2023-08-21 (D) task text".parse::<Task>().unwrap(),
+            Task {
+                priority: Some('D'),
+                text: "task text".to_owned(),
+                status: CreationCompletion::Completed {
+                    created: None,
+                    completed: Date::from_ymd_opt(2023, 8, 21).unwrap()
+                },
+                ..Task::default()
+            }
+        );
+    }
+
+    #[test]
+    fn parse_completed_pri_attribute_overrides_ntodotxt_priority() {
+        assert_eq!(
+            "x 2023-08-21 (D) 2023-08-20 task text pri:B"
+                .parse::<Task>()
+                .unwrap(),
+            Task {
+                priority: Some('B'),
+                text: "(D) task text".to_owned(),
+                status: CreationCompletion::Completed {
+                    created: Some(Date::from_ymd_opt(2023, 8, 20).unwrap()),
+                    completed: Date::from_ymd_opt(2023, 8, 21).unwrap()
+                },
+                ..Task::default()
+            }
+        );
+    }
+
+    #[test]
+    fn parse_pending_prefix_priority_overrides_pri_attribute() {
+        assert_eq!(
+            "(D) task text pri:B".parse::<Task>().unwrap(),
+            Task {
+                priority: Some('D'),
+                text: "task text".to_owned(),
                 ..Task::default()
             }
         );
@@ -1548,17 +1629,20 @@ mod tests {
 
     #[test]
     fn completed_prefix_with_created() {
-        let (rest, (completed, created)) =
+        let (rest, (completed, pri, created)) =
             parse_completed_prefix("x 2023-08-21 2023-08-20 task").unwrap();
         assert_eq!(completed, Date::from_ymd_opt(2023, 8, 21).unwrap());
+        assert_eq!(pri, None);
         assert_eq!(created, Some(Date::from_ymd_opt(2023, 8, 20).unwrap()));
         assert_eq!(rest, "task");
     }
 
     #[test]
     fn completed_prefix_without_created() {
-        let (rest, (completed, created)) = parse_completed_prefix("x 2023-08-21 task").unwrap();
+        let (rest, (completed, pri, created)) =
+            parse_completed_prefix("x 2023-08-21 task").unwrap();
         assert_eq!(completed, Date::from_ymd_opt(2023, 8, 21).unwrap());
+        assert_eq!(pri, None);
         assert_eq!(created, None);
         assert_eq!(rest, "task");
     }
@@ -1566,7 +1650,7 @@ mod tests {
     #[test]
     fn pending_prefix_priority_only() {
         let (rest, (pri, created)) = parse_pending_prefix("(B) task").unwrap();
-        assert_eq!(pri, Some('B'));
+        assert_eq!(pri, Some(("(B)", 'B')));
         assert_eq!(created, None);
         assert_eq!(rest, "task");
     }
@@ -1582,7 +1666,7 @@ mod tests {
     #[test]
     fn pending_prefix_both() {
         let (rest, (pri, created)) = parse_pending_prefix("(A) 2023-08-20 task").unwrap();
-        assert_eq!(pri, Some('A'));
+        assert_eq!(pri, Some(("(A)", 'A')));
         assert_eq!(created, Some(Date::from_ymd_opt(2023, 8, 20).unwrap()));
         assert_eq!(rest, "task");
     }

@@ -885,6 +885,23 @@ mod tests {
     }
 
     #[test]
+    fn auto_recur_ntodotxt_completed_priority() {
+        let mut tasks: Vec<Task> = vec![
+            "x 2024-06-15 (A) 2024-06-10 recurring task due:2024-06-15 rec:+7d"
+                .parse()
+                .unwrap(),
+        ];
+        let count = TodoFile::auto_recur(&mut tasks);
+        assert_eq!(count, 1);
+        assert_eq!(
+            tasks[1],
+            "(A) 2024-06-15 recurring task due:2024-06-22 rec:+7d"
+                .parse()
+                .unwrap()
+        );
+    }
+
+    #[test]
     fn auto_recur_does_not_duplicate_if_pending_exists() {
         let mut tasks: Vec<Task> = vec![
             "x 2024-06-15 2024-06-10 recurring task due:2024-06-15 rec:+7d"
